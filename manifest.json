@@ -1,0 +1,24 @@
+{
+  "name": "DUNGEON ESCAPE",
+  "short_name": "DUNGEON",
+  "description": "몬스터를 피해 던전을 탈출하는 3D 호러 미로 게임",
+  "start_url": ".",
+  "display": "fullscreen",
+  "orientation": "portrait",
+  "background_color": "#080a10",
+  "theme_color": "#ff6622",
+  "icons": [
+    {
+      "src": "icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

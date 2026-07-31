@@ -1,0 +1,1148 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no"/>
+<meta name="theme-color" content="#0a0808"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<title>DUNGEON ESCAPE</title>
+<link rel="manifest" href="manifest.json"/>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#080a10;overflow:hidden;font-family:'Courier New',monospace;touch-action:none;user-select:none;-webkit-user-select:none;}
+#canvas{display:block;width:100vw;height:100vh;}
+#hud{position:fixed;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:12px 18px;z-index:10;pointer-events:none;background:linear-gradient(180deg,rgba(0,0,0,.85) 0%,transparent 100%);}
+.hud-label{font-size:9px;letter-spacing:3px;color:rgba(255,170,50,.7);text-transform:uppercase;}
+.hud-value{font-size:20px;font-weight:bold;color:#ffaa33;text-shadow:0 0 8px #ff8800;letter-spacing:2px;}
+.hud-block{text-align:center;}
+#cross{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none;z-index:10;}
+#cross::before,#cross::after{content:'';position:absolute;background:rgba(255,160,50,.65);}
+#cross::before{width:1.5px;height:16px;left:50%;transform:translateX(-50%);}
+#cross::after{width:16px;height:1.5px;top:50%;transform:translateY(-50%);}
+#mmCanvas{position:fixed;bottom:165px;right:14px;z-index:11;border:1px solid rgba(255,130,30,.35);border-radius:4px;}
+/* 성능 계측 오버레이 */
+#perf{position:fixed;top:78px;left:12px;z-index:30;pointer-events:none;
+      font-family:'Courier New',monospace;font-size:13px;line-height:1.65;
+      color:#7fff9f;text-shadow:0 0 4px rgba(0,0,0,.9);
+      background:rgba(0,0,0,.72);border:1px solid rgba(120,255,150,.3);
+      border-radius:5px;padding:8px 11px;min-width:168px;letter-spacing:.5px;}
+#perf.hidden{display:none;}
+#perf .pv{color:#fff;font-weight:bold;}
+#perf .warn{color:#ffcc44;}
+#perf .bad{color:#ff5544;}
+#perf .lb{display:inline-block;width:52px;opacity:.65;}
+#perf .sep{border-top:1px solid rgba(120,255,150,.2);margin:5px 0;}
+#perf .hint{font-size:9px;opacity:.45;letter-spacing:0;}
+#perfToggle{position:fixed;top:78px;left:12px;width:172px;height:150px;z-index:31;
+            pointer-events:all;background:transparent;}
+#vig{position:fixed;inset:0;pointer-events:none;z-index:5;background:radial-gradient(ellipse at center,transparent 50%,rgba(0,0,0,.78) 100%);}
+#danger{position:fixed;inset:0;pointer-events:none;z-index:6;opacity:0;background:radial-gradient(ellipse at center,transparent 40%,rgba(180,0,0,.65) 100%);transition:opacity .25s;}
+#controls{position:fixed;bottom:0;left:0;right:0;height:160px;display:flex;justify-content:space-between;align-items:flex-end;padding:0 20px 20px;z-index:20;pointer-events:none;}
+#dpad{display:grid;grid-template-columns:repeat(3,44px);grid-template-rows:repeat(3,44px);gap:4px;flex-shrink:0;pointer-events:all;}
+.dbtn{display:flex;align-items:center;justify-content:center;border-radius:8px;
+      background:rgba(255,160,60,.08);border:1px solid rgba(255,140,40,.3);
+      font-size:18px;color:rgba(255,170,60,.7);-webkit-tap-highlight-color:transparent;
+      transition:background .08s,box-shadow .08s;}
+.dbtn.active{background:rgba(255,150,50,.32);box-shadow:0 0 14px rgba(255,120,30,.6);}
+.dbtn-empty{visibility:hidden;}
+#lZone{width:150px;height:130px;border-radius:12px;background:rgba(255,100,30,.04);border:1px solid rgba(255,100,30,.18);display:flex;align-items:center;justify-content:center;pointer-events:all;flex-shrink:0;}
+.lhint{font-size:9px;letter-spacing:2px;color:rgba(255,140,40,.45);text-transform:uppercase;}
+.screen{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,.92);z-index:100;gap:16px;transition:opacity .35s;}
+.screen.hidden{opacity:0;pointer-events:none;}
+.stitle{font-size:38px;font-weight:900;letter-spacing:6px;color:#ff6622;text-shadow:0 0 18px #ff4400,0 0 40px #ff220055;animation:flicker 5s infinite;}
+.ssub{font-size:11px;color:rgba(255,160,60,.8);letter-spacing:3px;text-transform:uppercase;}
+.sbtn{margin-top:12px;padding:13px 44px;background:transparent;border:1px solid #ff6622;color:#ff6622;font-family:'Courier New',monospace;font-size:15px;letter-spacing:4px;cursor:pointer;text-transform:uppercase;box-shadow:0 0 10px rgba(255,80,0,.35);}
+.sbtn:active{background:rgba(255,80,0,.15);}
+.badge{font-size:56px;}
+#spotFlash{position:fixed;inset:0;background:rgba(255,0,0,.32);opacity:0;pointer-events:none;z-index:89;transition:opacity .08s;}
+#flash{position:fixed;inset:0;background:#200;opacity:0;pointer-events:none;z-index:90;transition:opacity .15s;}
+#monsterBar{position:fixed;top:68px;left:50%;transform:translateX(-50%);display:flex;gap:8px;z-index:10;pointer-events:none;}
+.mIcon{font-size:18px;filter:drop-shadow(0 0 4px red);}
+@keyframes flicker{0%,93%,100%{opacity:1}94%{opacity:.5}95%{opacity:1}97%{opacity:.3}}
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<div id="vig"></div>
+<div id="danger"></div>
+<div id="cross"></div>
+<div id="hud">
+  <div class="hud-block"><div class="hud-label">Level</div><div class="hud-value" id="hudLv">1</div></div>
+  <div class="hud-block"><div class="hud-label">Escaped</div><div class="hud-value" id="hudEsc">0</div></div>
+  <div class="hud-block"><div class="hud-label">Steps</div><div class="hud-value" id="hudSt">0</div></div>
+</div>
+<div id="monsterBar"></div>
+<div id="perf">
+  <div><span class="lb">FPS</span><span class="pv" id="pFps">--</span> <span id="pMs" style="opacity:.55"></span></div>
+  <div><span class="lb">최저</span><span class="pv" id="pMin">--</span> <span style="opacity:.45;font-size:10px">worst</span></div>
+  <div><span class="lb">평균</span><span class="pv" id="pAvg">--</span></div>
+  <div class="sep"></div>
+  <div><span class="lb">DRAW</span><span class="pv" id="pCalls">--</span></div>
+  <div><span class="lb">LIGHT</span><span class="pv" id="pLights">--</span></div>
+  <div><span class="lb">TRIS</span><span class="pv" id="pTris">--</span></div>
+  <div><span class="lb">OBJ</span><span class="pv" id="pObjs">--</span></div>
+  <div class="sep"></div>
+  <div class="hint">1회 탭=기록초기화 · 3회=숨김</div>
+</div>
+<div id="perfToggle"></div>
+<canvas id="mmCanvas" width="110" height="110"></canvas>
+<div id="controls">
+  <div id="dpad">
+    <div class="dbtn dbtn-empty"></div>
+    <div class="dbtn" id="btnFwd">▲</div>
+    <div class="dbtn dbtn-empty"></div>
+    <div class="dbtn" id="btnLeft">◀</div>
+    <div class="dbtn dbtn-empty"></div>
+    <div class="dbtn" id="btnRight">▶</div>
+    <div class="dbtn dbtn-empty"></div>
+    <div class="dbtn" id="btnBack">▼</div>
+    <div class="dbtn dbtn-empty"></div>
+  </div>
+  <div id="lZone"><span class="lhint">◁ swipe ▷</span></div>
+</div>
+<div id="spotFlash"></div>
+<div id="flash"></div>
+<div class="screen" id="titleScreen">
+  <div class="stitle">DUNGEON ESCAPE</div>
+  <div class="ssub">괴물을 피해 탈출하라</div>
+  <div class="ssub" style="font-size:9px;opacity:.5;margin-top:4px">LEFT:십자키(전후/횡이동) RIGHT:스와이프 회전 WASD</div>
+  <button class="sbtn" id="startBtn">START</button>
+</div>
+<div class="screen hidden" id="winScreen">
+  <div class="badge">🏃</div>
+  <div class="stitle" style="font-size:26px">ESCAPED!</div>
+  <div class="ssub" id="winSub"></div>
+  <button class="sbtn" id="nextBtn">NEXT LEVEL</button>
+</div>
+<div class="screen hidden" id="deadScreen">
+  <div class="badge">💀</div>
+  <div class="stitle" style="font-size:26px;color:#ff2200">YOU DIED</div>
+  <div class="ssub" id="deadSub"></div>
+  <button class="sbtn" id="retryBtn" style="border-color:#ff2200;color:#ff2200">RETRY</button>
+</div>
+<script>
+// 전역 에러 핸들러 — CDN 모듈 내부 예외도 최대한 상세히 콘솔에 노출
+window.addEventListener('error', function(e){
+  console.error('[GAME ERROR]', e.message, 'at', e.filename+':'+e.lineno+':'+e.colno, e.error);
+});
+window.addEventListener('unhandledrejection', function(e){
+  console.error('[GAME PROMISE ERROR]', e.reason);
+});
+</script>
+<script type="module">
+import * as THREE from 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.module.js';
+
+// ── CONSTANTS ──
+const CELL=2.0,WALL_H=2.6,MW=25,MH=25;
+const PLAYER_R=0.32,PLAYER_SPD=4.5,TURN_SPD=2.6,ACCEL=16,FRIC=11;
+const MON_COUNT=lv=>Math.min(lv,3);
+const MON_BASE_SPD=2.2,MON_SPD_INC=0.12;
+const MON_SIGHT_R=8,MON_HEAR_R=4,MON_KILL_R=0.7;
+
+// ── MAZE GENERATOR (loop maze) ──
+function generateMaze(W,H){
+  const g=Array.from({length:H},()=>new Array(W).fill(0));
+  const sh=a=>{for(let i=a.length-1;i>0;i--){const j=0|Math.random()*(i+1);[a[i],a[j]]=[a[j],a[i]];}return a;};
+  function carve(x,y){
+    g[y][x]=1;
+    for(const[dx,dy]of sh([[0,-2],[0,2],[-2,0],[2,0]])){
+      const nx=x+dx,ny=y+dy;
+      if(ny>=0&&ny<H&&nx>=0&&nx<W&&g[ny][nx]===0){g[y+dy/2][x+dx/2]=1;carve(nx,ny);}
+    }
+  }
+  carve(1,1); g[H-2][W-2]=1;
+  // Add loops: remove 18% of interior walls that border 2+ paths
+  const walls=[];
+  for(let r=1;r<H-1;r++)for(let c=1;c<W-1;c++)if(g[r][c]===0)walls.push([c,r]);
+  sh(walls);
+  const rem=Math.floor(walls.length*0.18);
+  for(let i=0;i<rem;i++){
+    const[c,r]=walls[i];
+    const n=[[0,-1],[0,1],[-1,0],[1,0]].filter(([dc,dr])=>g[r+dr]&&g[r+dr][c+dc]===1).length;
+    if(n>=2)g[r][c]=1;
+  }
+  return g;
+}
+
+// ── THREE SETUP ──
+const cv=document.getElementById('canvas');
+const isMobile=/iPhone|iPad|Android/i.test(navigator.userAgent);
+const renderer=new THREE.WebGLRenderer({canvas:cv,antialias:!isMobile});
+renderer.setPixelRatio(Math.min(devicePixelRatio,isMobile?1.5:2));
+renderer.setSize(innerWidth,innerHeight);
+renderer.shadowMap.enabled=false;
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x080a10);
+scene.fog=new THREE.FogExp2(0x080a10,0.058);
+const camera=new THREE.PerspectiveCamera(80,innerWidth/innerHeight,0.05,60);
+scene.add(camera);
+scene.add(new THREE.AmbientLight(0x1a1e2a,3.2));
+
+// ── DUNGEON TEXTURES ──
+// 잘라낸 돌벽돌(cut stone) — 줄눈 + 이끼 얼룩 + 거친 표면
+function makeDungeonWall(w,h){
+  const c=document.createElement('canvas');c.width=w;c.height=h;
+  const ctx=c.getContext('2d');
+
+  // 기본 돌 색상 (청회색 계열)
+  ctx.fillStyle='#2e3340';ctx.fillRect(0,0,w,h);
+
+  // 벽돌 블록 패턴
+  const bW=64,bH=32; // 벽돌 크기
+  for(let row=0;row<Math.ceil(h/bH)+1;row++){
+    const offset=(row%2)*bW/2;
+    for(let col=-1;col<Math.ceil(w/bW)+1;col++){
+      const x=col*bW+offset,y=row*bH;
+      // 각 벽돌 색 미세 변화
+      const v=Math.floor(Math.random()*18-9);
+      const r=46+v,g=51+v,b=64+v;
+      ctx.fillStyle=`rgb(${r},${g},${b})`;
+      ctx.fillRect(x+1,y+1,bW-2,bH-2);
+      // 벽돌 내부 음영 (입체감)
+      ctx.fillStyle='rgba(0,0,0,0.18)';
+      ctx.fillRect(x+1,y+bH-4,bW-2,3);
+      ctx.fillStyle='rgba(255,255,255,0.04)';
+      ctx.fillRect(x+1,y+1,bW-2,3);
+    }
+  }
+  // 줄눈 (mortar lines) — 어두운 회색
+  ctx.strokeStyle='#141820';ctx.lineWidth=2;
+  for(let row=0;row<Math.ceil(h/bH)+1;row++){
+    const offset=(row%2)*bW/2;
+    // 가로줄
+    ctx.beginPath();ctx.moveTo(0,row*bH);ctx.lineTo(w,row*bH);ctx.stroke();
+    // 세로줄
+    for(let col=-1;col<Math.ceil(w/bW)+2;col++){
+      ctx.beginPath();ctx.moveTo(col*bW+offset,row*bH);ctx.lineTo(col*bW+offset,(row+1)*bH);ctx.stroke();
+    }
+  }
+  // 이끼/얼룩 (하단부 집중)
+  for(let i=0;i<60;i++){
+    const x=Math.random()*w,y=h*0.4+Math.random()*h*0.6;
+    const r2=3+Math.random()*10;
+    const gr=ctx.createRadialGradient(x,y,0,x,y,r2);
+    gr.addColorStop(0,'rgba(30,55,25,0.45)');gr.addColorStop(1,'transparent');
+    ctx.fillStyle=gr;ctx.beginPath();ctx.arc(x,y,r2,0,Math.PI*2);ctx.fill();
+  }
+  // 습기 얼룩 (세로 방향)
+  for(let i=0;i<8;i++){
+    const x=Math.random()*w;
+    ctx.fillStyle='rgba(10,15,30,0.22)';
+    ctx.fillRect(x,Math.random()*h*0.5,2+Math.random()*3,h*0.4+Math.random()*h*0.3);
+  }
+  const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;t.repeat.set(1,1);return t;
+}
+
+function makeDungeonFloor(w,h){
+  const c=document.createElement('canvas');c.width=w;c.height=h;
+  const ctx=c.getContext('2d');
+  ctx.fillStyle='#1a1c22';ctx.fillRect(0,0,w,h);
+  // 석판 패턴 (불규칙한 사각형)
+  const tiles=[[0,0,48,48],[48,0,40,48],[88,0,56,48],[144,0,50,48],[194,0,62,48],
+               [0,48,62,44],[62,48,44,44],[106,48,58,44],[164,48,48,44],[212,48,44,44]];
+  for(const[tx,ty,tw,th] of tiles){
+    const v=Math.floor(Math.random()*12);
+    ctx.fillStyle=`rgb(${32+v},${35+v},${44+v})`;
+    ctx.fillRect(tx+1,ty+1,tw-2,th-2);
+    ctx.fillStyle='rgba(0,0,0,0.3)';
+    ctx.fillRect(tx+1,ty+th-3,tw-2,2);
+  }
+  // 줄눈
+  ctx.strokeStyle='#0e1016';ctx.lineWidth=2;
+  for(let x=0;x<w;x+=48){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke();}
+  for(let y=0;y<h;y+=48){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();}
+  // 이끼/물때
+  for(let i=0;i<40;i++){
+    const x=Math.random()*w,y=Math.random()*h,r=2+Math.random()*7;
+    const gr=ctx.createRadialGradient(x,y,0,x,y,r);
+    gr.addColorStop(0,'rgba(20,40,18,0.4)');gr.addColorStop(1,'transparent');
+    ctx.fillStyle=gr;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();
+  }
+  const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;t.repeat.set(3,3);return t;
+}
+
+function makeDungeonCeil(w,h){
+  const c=document.createElement('canvas');c.width=w;c.height=h;
+  const ctx=c.getContext('2d');
+  ctx.fillStyle='#111318';ctx.fillRect(0,0,w,h);
+  // 거친 돌 천장 — 불규칙 균열
+  for(let i=0;i<200;i++){
+    const x=Math.random()*w,y=Math.random()*h,r=1+Math.random()*6;
+    const gr=ctx.createRadialGradient(x,y,0,x,y,r);
+    gr.addColorStop(0,'rgba(0,0,0,0.35)');gr.addColorStop(1,'transparent');
+    ctx.fillStyle=gr;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();
+  }
+  ctx.strokeStyle='rgba(0,0,0,0.25)';
+  for(let i=0;i<14;i++){
+    ctx.lineWidth=.5+Math.random()*1.2;ctx.beginPath();
+    let cx=Math.random()*w,cy=Math.random()*h;ctx.moveTo(cx,cy);
+    for(let j=0;j<5;j++){cx+=Math.random()*20-10;cy+=Math.random()*20-10;ctx.lineTo(cx,cy);}
+    ctx.stroke();
+  }
+  const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;return t;
+}
+
+const wallMap =makeDungeonWall(256,256);
+const floorMap=makeDungeonFloor(256,256);
+const ceilMap =makeDungeonCeil(256,256);
+
+// 던전 색상 팔레트 — 청회색/슬레이트
+const mWall  =new THREE.MeshStandardMaterial({map:wallMap, color:0x8892a4,roughness:.88,metalness:.06,emissive:0x05080f,emissiveIntensity:.25});
+const mFloor =new THREE.MeshStandardMaterial({map:floorMap,color:0x555e6e,roughness:.95,metalness:.04,emissive:0x02040a,emissiveIntensity:.12});
+const mCeil  =new THREE.MeshStandardMaterial({map:ceilMap, color:0x333844,roughness:.97,metalness:.02,emissive:0x010208,emissiveIntensity:.08});
+const mFlame  =new THREE.MeshStandardMaterial({color:0xff8800,emissive:0xff6600,emissiveIntensity:3.5,transparent:true,opacity:.92});
+const mBrack  =new THREE.MeshStandardMaterial({color:0x3a3a3a,roughness:.6,metalness:.7}); // 철 브래킷
+const mExit   =new THREE.MeshStandardMaterial({color:0x00ff88,emissive:0x00ff88,emissiveIntensity:1.6,transparent:true,opacity:.88});
+const mMonBody=new THREE.MeshStandardMaterial({color:0x220000,roughness:.7,emissive:0x550000,emissiveIntensity:.5});
+const mMonEye =new THREE.MeshStandardMaterial({color:0xff0000,emissive:0xff0000,emissiveIntensity:3.0});
+
+// ── PLAYER ──
+const P={x:CELL,z:CELL,yaw:0,targetYaw:0,vx:0,vz:0,spd:0};
+const bob={phase:0,y:0,roll:0};
+let lastStep=0,escaped=0;
+
+// ── KEYBOARD ──
+const K={f:0,b:0,tL:0,tR:0};
+const KM={ArrowUp:'f',w:'f',W:'f',ArrowDown:'b',s:'b',S:'b',ArrowLeft:'tL',a:'tL',A:'tL',ArrowRight:'tR',d:'tR',D:'tR'};
+document.addEventListener('keydown',e=>{const k=KM[e.key];if(k){K[k]=1;e.preventDefault();}});
+document.addEventListener('keyup',  e=>{const k=KM[e.key];if(k)K[k]=0;});
+
+// ── D-PAD (좌측) — 전진/후진 + 좌우 횡이동 ──
+let jFwd=0, dSide=0; // jFwd: 전진 버튼=-1, 후진 버튼=1 (게임 루프에서 -jFwd로 반전해 사용) / dSide: -1(좌횡이동)~1(우횡이동)
+function bindDPad(id, onDown, onUp){
+  const el=document.getElementById(id);
+  el.addEventListener('touchstart',e=>{e.preventDefault();el.classList.add('active');onDown();},{passive:false});
+  el.addEventListener('touchend',  e=>{e.preventDefault();el.classList.remove('active');onUp();},{passive:false});
+  el.addEventListener('touchcancel',e=>{e.preventDefault();el.classList.remove('active');onUp();},{passive:false});
+  // 데스크톱 테스트용 마우스 지원
+  el.addEventListener('mousedown',()=>{el.classList.add('active');onDown();});
+  el.addEventListener('mouseup',  ()=>{el.classList.remove('active');onUp();});
+  el.addEventListener('mouseleave',()=>{el.classList.remove('active');onUp();});
+}
+bindDPad('btnFwd',  ()=>jFwd=-1, ()=>{if(jFwd===-1)jFwd=0;});
+bindDPad('btnBack',  ()=>jFwd=1,  ()=>{if(jFwd===1)jFwd=0;});
+bindDPad('btnLeft', ()=>dSide=-1,()=>{if(dSide===-1)dSide=0;});
+bindDPad('btnRight',()=>dSide=1, ()=>{if(dSide===1)dSide=0;});
+
+// ── LOOK ZONE (우측) — 좌우 스와이프로 회전 (원래 방식으로 복귀) ──
+const lZone=document.getElementById('lZone');
+let lId=-1, lLastX=0;
+lZone.addEventListener('touchstart',e=>{e.preventDefault();const t=e.changedTouches[0];lId=t.identifier;lLastX=t.clientX;},{passive:false});
+lZone.addEventListener('touchmove', e=>{e.preventDefault();for(const t of e.changedTouches)if(t.identifier===lId){P.yaw-=(t.clientX-lLastX)*0.011;lLastX=t.clientX;}},{passive:false});
+lZone.addEventListener('touchend',  e=>{for(const t of e.changedTouches)if(t.identifier===lId)lId=-1;},{passive:false});
+
+// ── WORLD ──
+let mazeGrid=[],exitPos={x:MW-2,z:MH-2};
+const worldObjs=[],torchFlames=[];
+// 횃불 광원은 개별 생성하지 않고 "데이터"로만 보관 → 가장 가까운 N개만 실제 광원으로 배치
+const torchData=[];              // {x,y,z,phase}
+const torchLightPool=[];         // 재사용되는 실제 PointLight (개수 = MAX_TORCH_LIGHTS)
+let MAX_TORCH_LIGHTS=4;          // ★ 품질 설정으로 조절할 값
+const TORCH_RANGE=7;             // 광원 유효 반경 (이 밖은 어차피 기여 0)
+let cachedPortal=null,cachedExitLight=null;
+function isWall(gx,gz){if(gx<0||gz<0||gx>=MW||gz>=MH)return true;return mazeGrid[gz][gx]===0;}
+function addO(o){scene.add(o);worldObjs.push(o);return o;}
+
+// 광원 풀 생성 (씬에 상주, 레벨이 바뀌어도 재사용)
+function initTorchLightPool(){
+  for(const l of torchLightPool){scene.remove(l);}
+  torchLightPool.length=0;
+  for(let i=0;i<MAX_TORCH_LIGHTS;i++){
+    const l=new THREE.PointLight(0xff9933,0,TORCH_RANGE);
+    l.position.set(0,-999,0);   // 처음엔 씬 밖
+    scene.add(l);
+    torchLightPool.push(l);
+  }
+}
+
+// 매 프레임 호출: 플레이어에게 가장 가까운 횃불에 광원 풀을 배치
+let _torchUpdT=0;
+function updateTorchLights(dt,t){
+  _torchUpdT-=dt;
+  if(_torchUpdT>0) return;      // 0.12초마다만 재배치 (충분히 부드러움)
+  _torchUpdT=0.12;
+
+  // 유효 반경 안에 있는 횃불만 후보로 추림
+  const cands=[];
+  const R2=(TORCH_RANGE+CELL)*(TORCH_RANGE+CELL);
+  for(let i=0;i<torchData.length;i++){
+    const td=torchData[i];
+    const dx=td.x-P.x, dz=td.z-P.z;
+    const d2=dx*dx+dz*dz;
+    if(d2<R2) cands.push({d2,td});
+  }
+  cands.sort((a,b)=>a.d2-b.d2);
+
+  for(let i=0;i<torchLightPool.length;i++){
+    const l=torchLightPool[i];
+    if(i<cands.length){
+      const td=cands[i].td;
+      l.position.set(td.x,td.y,td.z);
+      l.userData.td=td;
+      l.userData.on=true;
+    }else{
+      // 남는 광원은 끄되 visible은 건드리지 않음
+      // (Three.js는 보이는 광원 "개수"가 바뀌면 셰이더를 재컴파일하므로 개수는 항상 고정 유지)
+      l.position.set(0,-9999,0);
+      l.intensity=0;
+      l.userData.on=false;
+    }
+  }
+}
+
+function placeTorch(wx,wz,fdx,fdz){
+  const bx=wx+fdx*(CELL/2-.05),bz=wz+fdz*(CELL/2-.05);
+  addO(new THREE.Mesh(new THREE.BoxGeometry(.08,.26,.08),mBrack)).position.set(bx,1.55,bz);
+  const st=addO(new THREE.Mesh(new THREE.CylinderGeometry(.04,.04,.32,8),mBrack));
+  st.rotation.x=fdz!==0?Math.PI/2.1:0;st.rotation.z=fdx!==0?Math.PI/2.1:0;
+  st.position.set(bx+fdx*.1,1.7,bz+fdz*.1);
+  const fl=addO(new THREE.Mesh(new THREE.ConeGeometry(.1,.26,8),mFlame));
+  fl.position.set(bx+fdx*.1,1.92,bz+fdz*.1);torchFlames.push(fl);
+  addO(new THREE.Mesh(new THREE.SphereGeometry(.055,6,6),
+    new THREE.MeshStandardMaterial({color:0xffee88,emissive:0xffdd44,emissiveIntensity:4,transparent:true,opacity:.8})
+  )).position.copy(fl.position);
+  // 실제 PointLight를 만들지 않고 위치 데이터만 등록
+  torchData.push({x:bx+fdx*.1, y:1.98, z:bz+fdz*.1, phase:Math.random()*Math.PI*2});
+}
+
+function buildWorld(){
+  worldObjs.forEach(o=>scene.remove(o));worldObjs.length=0;torchFlames.length=0;torchData.length=0;
+  const gW=new THREE.BoxGeometry(CELL,WALL_H,CELL);
+  const gF=new THREE.BoxGeometry(CELL,.1,CELL);
+  const gC=new THREE.BoxGeometry(CELL,.1,CELL);
+  const FACES=[[1,0],[-1,0],[0,1],[0,-1]];
+  for(let row=0;row<MH;row++)for(let col=0;col<MW;col++){
+    const wx=col*CELL,wz=row*CELL,h=col*31+row*17;
+    if(mazeGrid[row][col]===0){
+      addO(new THREE.Mesh(gW,mWall)).position.set(wx,WALL_H/2,wz);
+      if(h%5===0)for(const[fdx,fdz]of FACES){
+        const nx=col+fdx,nz=row+fdz;
+        if(nx>=0&&nz>=0&&nx<MW&&nz<MH&&mazeGrid[nz][nx]===1){placeTorch(wx,wz,fdx,fdz);break;}
+      }
+    }else{
+      addO(new THREE.Mesh(gF,mFloor)).position.set(wx,-.05,wz);
+      addO(new THREE.Mesh(gC,mCeil)).position.set(wx,WALL_H+.05,wz);
+    }
+  }
+  const ep=addO(new THREE.Mesh(new THREE.BoxGeometry(1.1,1.9,.12),mExit));
+  ep.position.set(exitPos.x*CELL,WALL_H/2-.3,exitPos.z*CELL);ep.userData.isPortal=true;
+  cachedPortal=ep;
+  const el=new THREE.PointLight(0x00ff88,5,CELL*1.5,2);
+  el.position.set(exitPos.x*CELL,1.2,exitPos.z*CELL);el.userData.isExitLight=true;addO(el);
+  cachedExitLight=el;
+  const ring=addO(new THREE.Mesh(new THREE.RingGeometry(.6,.76,24),
+    new THREE.MeshStandardMaterial({color:0x00ff88,emissive:0x00ff88,emissiveIntensity:2,side:THREE.DoubleSide})));
+  ring.rotation.x=-Math.PI/2;ring.position.set(exitPos.x*CELL,.015,exitPos.z*CELL);
+
+  initTorchLightPool();   // 횃불 광원 풀 생성 (개수 고정)
+}
+
+// ── COLLISION ──
+function blocked(nx,nz){
+  for(const[ox,oz]of[[-PLAYER_R,-PLAYER_R],[PLAYER_R,-PLAYER_R],[-PLAYER_R,PLAYER_R],[PLAYER_R,PLAYER_R]])
+    if(isWall(Math.round((nx+ox)/CELL),Math.round((nz+oz)/CELL)))return true;
+  return false;
+}
+
+// ── BFS ──
+// BFS용 버퍼를 전역에서 1회만 할당하고 재사용 — 매 호출마다 GC 압박 유발하던 재할당 제거
+const _bfsVis=new Uint8Array(MW*MH);
+const _bfsPar=new Int16Array(MW*MH);
+const _bfsQx=new Int16Array(MW*MH); // 큐를 배열 push/shift 대신 순환 버퍼로 처리 (shift()의 O(n) 비용 제거)
+const _bfsQz=new Int16Array(MW*MH);
+
+function bfsNext(sx,sz,tx,tz){
+  if(sx===tx&&sz===tz)return null;
+  if(!Number.isFinite(sx)||!Number.isFinite(sz)||!Number.isFinite(tx)||!Number.isFinite(tz))return null;
+  if(sx<0||sz<0||sx>=MW||sz>=MH||tx<0||tz<0||tx>=MW||tz>=MH)return null;
+  if(mazeGrid[sz][sx]===0||mazeGrid[tz][tx]===0)return null;
+
+  _bfsVis.fill(0); _bfsPar.fill(-1);
+  const idx=(x,z)=>z*MW+x;
+  const startIdx=idx(sx,sz);
+  let qHead=0, qTail=0;
+  _bfsQx[qTail]=sx; _bfsQz[qTail]=sz; qTail++;
+  _bfsVis[startIdx]=1;
+  let found=false;
+  outer:while(qHead<qTail){
+    const cx=_bfsQx[qHead], cz=_bfsQz[qHead]; qHead++;
+    for(const[dx,dz]of[[0,-1],[0,1],[-1,0],[1,0]]){
+      const nx=cx+dx,nz=cz+dz;
+      if(nx<0||nz<0||nx>=MW||nz>=MH||mazeGrid[nz][nx]===0||_bfsVis[idx(nx,nz)])continue;
+      _bfsVis[idx(nx,nz)]=1;_bfsPar[idx(nx,nz)]=idx(cx,cz);
+      if(nx===tx&&nz===tz){found=true;break outer;}
+      _bfsQx[qTail]=nx; _bfsQz[qTail]=nz; qTail++;
+    }
+  }
+  if(!found)return null;
+
+  let cur=idx(tx,tz),prev=cur,guard=MW*MH+2;
+  while(cur!==startIdx&&_bfsPar[cur]!==-1&&guard-->0){prev=cur;cur=_bfsPar[cur];}
+  if(cur!==startIdx&&_bfsPar[cur]===-1)return null;
+  const nx=prev%MW, nz=Math.floor(prev/MW);
+  if(!Number.isFinite(nx)||!Number.isFinite(nz))return null;
+  return[nx,nz];
+}
+
+// ── LOS ──
+function hasLOS(ax,az,bx,bz){
+  const dx=bx-ax,dz=bz-az,dist=Math.max(Math.abs(dx),Math.abs(dz));
+  if(dist===0)return true;
+  const steps=Math.ceil(dist*6),sx=dx/steps,sz=dz/steps;
+  let cx=ax,cz=az;
+  for(let i=0;i<steps;i++){
+    cx+=sx;cz+=sz;
+    const igx=Math.round(cx),igz=Math.round(cz);
+    if(igx===bx&&igz===bz)return true;
+    if(isWall(igx,igz))return false;
+  }
+  return true;
+}
+
+// ── MONSTER CLASS ──
+class Monster{
+  constructor(gx,gz,spd){
+    this.stepPhase=Math.random()*Math.PI*2;   // 발소리 타이밍 (몬스터마다 다르게)
+    this.gx=gx;this.gz=gz;this.wx=gx*CELL;this.wz=gz*CELL;this.spd=spd;
+    this.state='patrol';this.path=null;this.patrolTarget=null;
+    this.searchPos=null;this.searchTimer=0;this.alertTimer=0;
+
+    // mesh
+    const body=new THREE.Mesh(new THREE.CylinderGeometry(.28,.35,1.5,10),mMonBody.clone());
+    const head=new THREE.Mesh(new THREE.SphereGeometry(.3,10,8),mMonBody.clone());
+    head.position.y=.95;
+    const eyeL=new THREE.Mesh(new THREE.SphereGeometry(.07,6,6),mMonEye.clone());
+    eyeL.position.set(-.12,.95,.26);
+    const eyeR=new THREE.Mesh(new THREE.SphereGeometry(.07,6,6),mMonEye.clone());
+    eyeR.position.set(.12,.95,.26);
+    this.group=new THREE.Group();
+    this.group.add(body,head,eyeL,eyeR);
+    this.group.position.set(this.wx,.1,this.wz);
+    scene.add(this.group);worldObjs.push(this.group);
+
+    this.eLight=new THREE.PointLight(0xff0000,1.0,3.5);
+    this.eLight.position.set(this.wx,1.3,this.wz);
+    scene.add(this.eLight);worldObjs.push(this.eLight);
+  }
+
+  seesPlayer(){
+    const pgx=Math.round(P.x/CELL),pgz=Math.round(P.z/CELL);
+    const dx=pgx-this.gx,dz=pgz-this.gz;
+    if(dx*dx+dz*dz>MON_SIGHT_R*MON_SIGHT_R)return false;
+    return hasLOS(this.gx,this.gz,pgx,pgz);
+  }
+  hearsPlayer(){
+    if(P.spd<1.5)return false;
+    const pgx=Math.round(P.x/CELL),pgz=Math.round(P.z/CELL);
+    const dx=pgx-this.gx,dz=pgz-this.gz;
+    return dx*dx+dz*dz<=MON_HEAR_R*MON_HEAR_R;
+  }
+  pickPatrol(){
+    for(let i=0;i<30;i++){
+      const rx=1+2*(0|Math.random()*((MW-1)/2));
+      const rz=1+2*(0|Math.random()*((MH-1)/2));
+      if(mazeGrid[rz]&&mazeGrid[rz][rx]===1&&(rx!==this.gx||rz!==this.gz)){this.patrolTarget=[rx,rz];return;}
+    }
+  }
+  update(dt,lv,t){
+    const pgx=Math.round(P.x/CELL),pgz=Math.round(P.z/CELL);
+    const sees=this.seesPlayer(),hears=this.hearsPlayer();
+
+    if(this.state==='patrol'){
+      if(sees||hears){
+        this.state='chase';this.alertTimer=0;
+        this.searchPos=[pgx,pgz]; // chase 진입 즉시 위치 기록 — searchPos null 방지
+        playGrowl(this.wx,this.wz);flashSpot();
+      }
+      else{
+        if(!this.patrolTarget||(this.gx===this.patrolTarget[0]&&this.gz===this.patrolTarget[1]))this.pickPatrol();
+        this.alertTimer-=dt;
+        if(this.alertTimer<=0&&this.patrolTarget){this.path=bfsNext(this.gx,this.gz,this.patrolTarget[0],this.patrolTarget[1]);this.alertTimer=1.2;}
+      }
+    }else if(this.state==='chase'){
+      this.searchPos=[pgx,pgz]; // chase 중엔 매 프레임 최신 위치 유지
+      if(sees){
+        this.alertTimer-=dt;
+        if(this.alertTimer<=0){this.path=bfsNext(this.gx,this.gz,pgx,pgz);this.alertTimer=0.45;}
+      }else{
+        this.state='search';this.searchTimer=8+Math.random()*4;
+        this.path=bfsNext(this.gx,this.gz,this.searchPos[0],this.searchPos[1]);
+      }
+    }else{// search
+      this.searchTimer-=dt;
+      if(sees||hears){this.state='chase';this.alertTimer=0;playGrowl(this.wx,this.wz);flashSpot();}
+      else if(!this.searchPos||this.searchTimer<=0){
+        // searchPos가 애초에 없거나(청각 감지 등) 타이머 만료 — 순찰로 복귀
+        this.state='patrol';this.path=null;this.patrolTarget=null;this.searchPos=null;
+      }
+      else if(!this.path||(this.gx===this.searchPos[0]&&this.gz===this.searchPos[1])){
+        for(let i=0;i<20;i++){
+          const ox=Math.round(Math.random()*6-3),oz=Math.round(Math.random()*6-3);
+          const nx=(this.searchPos[0]+ox),nz=(this.searchPos[1]+oz);
+          if(nx>=0&&nz>=0&&nx<MW&&nz<MH&&mazeGrid[nz][nx]===1){this.path=bfsNext(this.gx,this.gz,nx,nz);break;}
+        }
+      }
+    }
+
+    // move
+    const spd=this.state==='chase'?this.spd*(1+0.05*lv):this.spd*0.55;
+    if(this.path){
+      const[tgx,tgz]=this.path;
+      // NaN/유효하지 않은 좌표 방어 — bfsNext 실패 시 path를 즉시 폐기
+      if(!Number.isFinite(tgx)||!Number.isFinite(tgz)||tgx<0||tgz<0||tgx>=MW||tgz>=MH){
+        this.path=null;
+      } else {
+        const twx=tgx*CELL,twz=tgz*CELL;
+        const dx=twx-this.wx,dz=twz-this.wz,dist=Math.sqrt(dx*dx+dz*dz);
+        if(dist<0.1){this.wx=twx;this.wz=twz;this.gx=tgx;this.gz=tgz;this.path=null;this.alertTimer=0;}
+        else{
+          this.wx+=dx/dist*spd*dt;this.wz+=dz/dist*spd*dt;
+          this.group.rotation.y=Math.atan2(dx,dz);
+          // 3D 발소리 — 이동 속도에 비례한 주기로 자기 위치에서 발생
+          this.stepPhase += dt * spd * 1.5;
+          if(this.stepPhase >= Math.PI){
+            this.stepPhase -= Math.PI;
+            const ddx=this.wx-P.x, ddz=this.wz-P.z;
+            if(ddx*ddx+ddz*ddz < 30*30) monsterStep(this.wx,this.wz);
+          }
+        }
+      }
+    }
+    // 위치 자체가 이미 NaN이 됐다면 안전한 좌표로 즉시 복구 (렌더러 크래시 방지)
+    if(!Number.isFinite(this.wx)||!Number.isFinite(this.wz)){
+      this.wx=this.gx*CELL; this.wz=this.gz*CELL;
+      if(!Number.isFinite(this.wx)||!Number.isFinite(this.wz)){this.wx=CELL;this.wz=CELL;this.gx=1;this.gz=1;}
+    }
+    this.group.position.set(this.wx,.1,this.wz);
+    this.eLight.position.set(this.wx,1.3,this.wz);
+    // 유효 반경 밖이면 세기를 0으로 (visible은 건드리지 않음 — 광원 개수 고정 유지)
+    const dxL=this.wx-P.x, dzL=this.wz-P.z;
+    if((dxL*dxL+dzL*dzL) < 5.5*5.5)
+      this.eLight.intensity=this.state==='chase'?2.0+Math.sin(t*8)*.8:.7+Math.sin(t*2)*.3;
+    else
+      this.eLight.intensity=0;
+    const ei=this.state==='chase'?3+Math.sin(t*8):1.5;
+    this.group.children[2].material.emissiveIntensity=ei;
+    this.group.children[3].material.emissiveIntensity=ei;
+  }
+  distToPlayer(){const dx=this.wx-P.x,dz=this.wz-P.z;return Math.sqrt(dx*dx+dz*dz);}
+  remove(){scene.remove(this.group);scene.remove(this.eLight);}
+}
+let monsters=[];
+
+// ── AUDIO (3D 공간 오디오) ──
+let actx=null, masterGain=null, audioReady=false;
+
+function getAC(){
+  if(!actx){
+    actx=new(window.AudioContext||window.webkitAudioContext)();
+    masterGain=actx.createGain();
+    masterGain.gain.value=0.9;
+    masterGain.connect(actx.destination);
+  }
+  return actx;
+}
+
+// iOS는 사용자 제스처 안에서 resume()해야 소리가 납니다
+function unlockAudio(){
+  try{
+    const c=getAC();
+    if(c.state==='suspended') c.resume();
+    audioReady=true;
+  }catch(_){}
+}
+
+// 리스너(=플레이어 귀)를 카메라 위치/방향에 동기화
+function updateAudioListener(){
+  if(!actx) return;
+  const l=actx.listener;
+  const fx=-Math.sin(P.yaw), fz=-Math.cos(P.yaw);
+  try{
+    if(l.positionX){
+      // 최신 브라우저: AudioParam 방식
+      l.positionX.value=P.x; l.positionY.value=1.22; l.positionZ.value=P.z;
+      l.forwardX.value=fx;   l.forwardY.value=0;    l.forwardZ.value=fz;
+      l.upX.value=0;         l.upY.value=1;         l.upZ.value=0;
+    }else{
+      // 구형 API 폴백 (iOS Safari 일부 버전)
+      l.setPosition(P.x,1.22,P.z);
+      l.setOrientation(fx,0,fz, 0,1,0);
+    }
+  }catch(_){}
+}
+
+// 3D 위치를 가진 출력 노드 생성
+function makePanner(x,y,z,refDist,maxDist,rolloff){
+  const c=getAC();
+  const p=c.createPanner();
+  p.panningModel='HRTF';        // 머리전달함수 — 방향감이 확연히 좋아짐
+  p.distanceModel='inverse';
+  p.refDistance=refDist||1.8;
+  p.maxDistance=maxDist||28;
+  p.rolloffFactor=rolloff||1.5;
+  try{
+    if(p.positionX){p.positionX.value=x;p.positionY.value=y;p.positionZ.value=z;}
+    else p.setPosition(x,y,z);
+  }catch(_){}
+  p.connect(masterGain);
+  return p;
+}
+
+// 노이즈 버스트 버퍼 (발소리용) — 미리 만들어두고 재사용
+let _noiseBuf=null;
+function getNoiseBuf(){
+  const c=getAC();
+  if(!_noiseBuf){
+    const len=Math.floor(c.sampleRate*0.09);
+    _noiseBuf=c.createBuffer(1,len,c.sampleRate);
+    const d=_noiseBuf.getChannelData(0);
+    for(let i=0;i<len;i++) d[i]=(Math.random()*2-1)*Math.exp(-i/(len*0.26));
+  }
+  return _noiseBuf;
+}
+
+// 플레이어 발소리 — 자기 발이므로 위치 없이 그대로 (2D)
+function footstep(){
+  try{
+    const c=getAC();
+    const src=c.createBufferSource();src.buffer=getNoiseBuf();
+    src.playbackRate.value=0.9+Math.random()*0.25;
+    const g=c.createGain();g.gain.value=.06;
+    const f=c.createBiquadFilter();f.type='bandpass';f.frequency.value=150+Math.random()*80;
+    src.connect(f);f.connect(g);g.connect(masterGain);src.start();
+  }catch(_){}
+}
+
+// 몬스터 발소리 — 3D 위치 지정 (묵직하게)
+function monsterStep(x,z){
+  try{
+    const c=getAC();
+    const src=c.createBufferSource();src.buffer=getNoiseBuf();
+    src.playbackRate.value=0.5+Math.random()*0.15;   // 낮게 = 무거운 발소리
+    const f=c.createBiquadFilter();f.type='lowpass';f.frequency.value=320+Math.random()*120;
+    const g=c.createGain();g.gain.value=.5;
+    const p=makePanner(x,0.4,z, 2.0, 30, 1.4);
+    src.connect(f);f.connect(g);g.connect(p);
+    src.start();
+    src.onended=()=>{try{p.disconnect();g.disconnect();f.disconnect();}catch(_){}};
+  }catch(_){}
+}
+
+// 으르렁 — 몬스터 위치에서 발생
+function playGrowl(x,z){
+  try{
+    const c=getAC();
+    const o=c.createOscillator();o.type='sawtooth';
+    o.frequency.setValueAtTime(58+Math.random()*18,c.currentTime);
+    o.frequency.exponentialRampToValueAtTime(38,c.currentTime+.75);
+    const f=c.createBiquadFilter();f.type='lowpass';f.frequency.value=220;
+    const g=c.createGain();
+    g.gain.setValueAtTime(.55,c.currentTime);
+    g.gain.exponentialRampToValueAtTime(.001,c.currentTime+.85);
+    const dest = (x!==undefined) ? makePanner(x,1.0,z, 3.0, 40, 1.1) : masterGain;
+    o.connect(f);f.connect(g);g.connect(dest);
+    o.start();o.stop(c.currentTime+.85);
+    o.onended=()=>{try{if(dest!==masterGain)dest.disconnect();g.disconnect();f.disconnect();}catch(_){}};
+  }catch(_){}
+}
+
+// 횃불 탁탁거리는 소리 — 가장 가까운 횃불에서 가끔
+function torchCrackle(x,y,z){
+  try{
+    const c=getAC();
+    const src=c.createBufferSource();src.buffer=getNoiseBuf();
+    src.playbackRate.value=1.8+Math.random()*1.2;
+    const f=c.createBiquadFilter();f.type='highpass';f.frequency.value=1800;
+    const g=c.createGain();g.gain.value=.28;
+    const p=makePanner(x,y,z, 1.2, 12, 2.2);
+    src.connect(f);f.connect(g);g.connect(p);
+    src.start();
+    src.onended=()=>{try{p.disconnect();g.disconnect();f.disconnect();}catch(_){}};
+  }catch(_){}
+}
+
+// 출구 포탈 저주파 험 — 위치 기반, 루프
+let _exitHum=null,_exitHumPanner=null;
+function startExitHum(x,z){
+  stopExitHum();
+  try{
+    const c=getAC();
+    const o=c.createOscillator();o.type='sine';o.frequency.value=146.8;
+    const o2=c.createOscillator();o2.type='sine';o2.frequency.value=220;
+    const g=c.createGain();g.gain.value=.10;
+    const p=makePanner(x,1.2,z, 2.5, 22, 1.8);
+    o.connect(g);o2.connect(g);g.connect(p);
+    o.start();o2.start();
+    _exitHum={o,o2,g};_exitHumPanner=p;
+  }catch(_){}
+}
+function stopExitHum(){
+  try{
+    if(_exitHum){_exitHum.o.stop();_exitHum.o2.stop();_exitHum.g.disconnect();}
+    if(_exitHumPanner)_exitHumPanner.disconnect();
+  }catch(_){}
+  _exitHum=null;_exitHumPanner=null;
+}
+
+// 심장박동 — 몬스터가 아주 가까울 때 (2D, 플레이어 자신의 것)
+let _lastHeartbeat=0;
+function heartbeat(intensity){
+  try{
+    const c=getAC();
+    const o=c.createOscillator();o.type='sine';
+    o.frequency.setValueAtTime(62,c.currentTime);
+    o.frequency.exponentialRampToValueAtTime(34,c.currentTime+.16);
+    const g=c.createGain();
+    g.gain.setValueAtTime(0,c.currentTime);
+    g.gain.linearRampToValueAtTime(.22*intensity,c.currentTime+.03);
+    g.gain.exponentialRampToValueAtTime(.001,c.currentTime+.22);
+    o.connect(g);g.connect(masterGain);
+    o.start();o.stop(c.currentTime+.24);
+  }catch(_){}
+}
+
+function playDeath(){
+  try{const c=getAC();
+    [80,60,45].forEach((fr,i)=>{const o=c.createOscillator();o.type='sawtooth';o.frequency.value=fr;
+      const g=c.createGain();g.gain.setValueAtTime(0,c.currentTime+i*.15);
+      g.gain.linearRampToValueAtTime(.22,c.currentTime+i*.15+.08);
+      g.gain.exponentialRampToValueAtTime(.001,c.currentTime+i*.15+.6);
+      o.connect(g);g.connect(masterGain);o.start(c.currentTime+i*.15);o.stop(c.currentTime+i*.15+.7);});}catch(_){}
+}
+function playEscape(){
+  try{const c=getAC();
+    [0,7,12,16].forEach((s,i)=>{const o=c.createOscillator();o.type='sine';o.frequency.value=330*Math.pow(2,s/12);
+      const g=c.createGain();g.gain.setValueAtTime(0,c.currentTime+i*.1);
+      g.gain.linearRampToValueAtTime(.16,c.currentTime+i*.1+.05);
+      g.gain.exponentialRampToValueAtTime(.001,c.currentTime+i*.1+.5);
+      o.connect(g);g.connect(masterGain);o.start(c.currentTime+i*.1);o.stop(c.currentTime+i*.1+.5);});}catch(_){}
+}
+
+// ── FOG OF WAR ──
+let visited=[];
+function initVisited(){visited=Array.from({length:MH},()=>new Array(MW).fill(false));_lastVisGx=-999;_lastVisGz=-999;_lastVisYaw=999;_mmVisitedCount=-1;}
+const FOV_COS=Math.cos(60*Math.PI/180);
+let _lastVisGx=-999,_lastVisGz=-999,_lastVisYaw=999;
+function updateVisibility(){
+  const pgx=Math.round(P.x/CELL),pgz=Math.round(P.z/CELL);
+  // 같은 칸에 머물고 시야각도 거의 안 바뀌었으면 재계산 스킵 — 매 프레임 25칸 스캔 낭비 제거
+  const yawDelta=Math.abs(P.yaw-_lastVisYaw);
+  if(pgx===_lastVisGx&&pgz===_lastVisGz&&yawDelta<0.15) return;
+  _lastVisGx=pgx;_lastVisGz=pgz;_lastVisYaw=P.yaw;
+
+  if(pgx>=0&&pgz>=0&&pgx<MW&&pgz<MH)visited[pgz][pgx]=true;
+  const fwdX=-Math.sin(P.yaw),fwdZ=-Math.cos(P.yaw);
+  for(let dz=-2;dz<=2;dz++)for(let dx=-2;dx<=2;dx++){
+    if(dx===0&&dz===0)continue;
+    if(dx*dx+dz*dz>4)continue;
+    const len=Math.sqrt(dx*dx+dz*dz);
+    if((dx/len)*fwdX+(dz/len)*fwdZ<FOV_COS)continue;
+    const gx=pgx+dx,gz=pgz+dz;
+    if(gx<0||gz<0||gx>=MW||gz>=MH)continue;
+    if(!visited[gz][gx]&&hasLOS(pgx,pgz,gx,gz))visited[gz][gx]=true;
+  }
+}
+
+// ── MINIMAP ──
+const mm=document.getElementById('mmCanvas'),mc=mm.getContext('2d'),MM=110;
+// 지형(길/벽) 레이어는 새로 밝혀진 칸이 있을 때만 오프스크린에 갱신 — 매 프레임 625칸 순회 제거
+const mmTerrain=document.createElement('canvas');mmTerrain.width=MM;mmTerrain.height=MM;
+const mtCtx=mmTerrain.getContext('2d');
+let _mmVisitedCount=0;
+
+function redrawTerrainLayer(){
+  mtCtx.clearRect(0,0,MM,MM);mtCtx.fillStyle='rgba(0,0,0,.92)';mtCtx.fillRect(0,0,MM,MM);
+  const cw=MM/MW,ch=MM/MH;
+  let count=0;
+  for(let r=0;r<MH;r++)for(let c=0;c<MW;c++){
+    if(!visited[r][c])continue;
+    count++;
+    mtCtx.fillStyle=mazeGrid[r][c]===1?'#c8854a':'#2a1e12';
+    mtCtx.fillRect(c*cw,r*ch,cw,ch);
+  }
+  if(visited[exitPos.z]&&visited[exitPos.z][exitPos.x]){
+    mtCtx.fillStyle='#0f8';mtCtx.shadowColor='#0f8';mtCtx.shadowBlur=5;
+    mtCtx.fillRect(exitPos.x*cw+1,exitPos.z*ch+1,cw-2,ch-2);mtCtx.shadowBlur=0;
+  }
+  _mmVisitedCount=count;
+}
+
+function drawMM(){
+  // 새로 밝혀진 칸이 생겼을 때만 지형 레이어 재생성
+  let curCount=0;
+  for(let r=0;r<MH;r++){const row=visited[r];for(let c=0;c<MW;c++)if(row[c])curCount++;}
+  if(curCount!==_mmVisitedCount) redrawTerrainLayer();
+
+  const cw=MM/MW,ch=MM/MH;
+  mc.clearRect(0,0,MM,MM);
+  mc.drawImage(mmTerrain,0,0); // 캐싱된 지형을 그대로 복사 (fillRect 625회 대신 1회 drawImage)
+
+  for(const m of monsters){
+    if(!visited[m.gz]||!visited[m.gz][m.gx])continue;
+    mc.fillStyle=m.state==='chase'?'#f00':'#800';
+    mc.shadowColor='#f00';mc.shadowBlur=4;
+    mc.beginPath();mc.arc(m.wx/CELL*cw,m.wz/CELL*ch,Math.max(cw,ch)*.9,0,Math.PI*2);mc.fill();mc.shadowBlur=0;
+  }
+  const px=P.x/CELL*cw,pz=P.z/CELL*ch;
+  mc.fillStyle='#ffaa33';mc.shadowColor='#ff8800';mc.shadowBlur=7;
+  mc.beginPath();mc.arc(px,pz,Math.max(cw,ch)*.7,0,Math.PI*2);mc.fill();
+  mc.strokeStyle='#ffe';mc.lineWidth=1.5;mc.shadowBlur=0;
+  mc.beginPath();mc.moveTo(px,pz);mc.lineTo(px-Math.sin(P.yaw)*cw*1.5,pz-Math.cos(P.yaw)*ch*1.5);mc.stroke();
+  mc.strokeStyle='rgba(255,130,30,.4)';mc.lineWidth=1;mc.strokeRect(0,0,MM,MM);
+}
+
+// ── HUD HELPERS ──
+function flashSpot(){const e=document.getElementById('spotFlash');e.style.opacity='1';setTimeout(()=>e.style.opacity='0',130);}
+function updateDanger(){
+  let d=Infinity;for(const m of monsters)d=Math.min(d,m.distToPlayer());
+  document.getElementById('danger').style.opacity=d<6?String(Math.min(1,(6-d)/5*.9)):'0';
+}
+function updateMonBar(n){
+  const b=document.getElementById('monsterBar');b.innerHTML='';
+  for(let i=0;i<n;i++){const d=document.createElement('div');d.className='mIcon';d.textContent='👹';b.appendChild(d);}
+}
+
+// ── SPAWN ──
+function findSpawn(idx,total){
+  const zones=[[MW-4,MH-4],[1,MH-4],[MW-4,1],[Math.floor(MW/2),Math.floor(MH/2)]];
+  const[zx,zz]=zones[idx%zones.length];
+  for(let t=0;t<20;t++){
+    const gx=Math.max(1,Math.min(MW-2,zx+(Math.random()*4-2|0)));
+    const gz=Math.max(1,Math.min(MH-2,zz+(Math.random()*4-2|0)));
+    if(mazeGrid[gz]&&mazeGrid[gz][gx]===1)return[gx,gz];
+  }
+  // 20회 랜덤 시도 실패 시 — 전수 탐색으로 반드시 유효한 길 칸을 찾음 (NaN/벽 스폰 원천 차단)
+  for(let r=1;r<MH-1;r++){
+    for(let c=1;c<MW-1;c++){
+      if(mazeGrid[r][c]===1) return[c,r];
+    }
+  }
+  return[1,1]; // 최후의 보루 — 시작 지점 (항상 길로 보장됨)
+}
+
+// ── LEVEL ──
+let level=1,steps=0,gameActive=false;
+function startLevel(lv){
+  level=lv;steps=0;gameActive=false;lastStep=0;
+  monsters.forEach(m=>m.remove());monsters=[];
+  mazeGrid=generateMaze(MW,MH);exitPos={x:MW-2,z:MH-2};
+  P.x=CELL;P.z=CELL;P.yaw=0;P.targetYaw=0;P.vx=0;P.vz=0;P.spd=0;
+  bob.phase=0;bob.y=0;bob.roll=0;
+  buildWorld();initVisited();updateVisibility();drawMM();
+  const cnt=MON_COUNT(lv),spd=MON_BASE_SPD*(1+MON_SPD_INC*(lv-1));
+  for(let i=0;i<cnt;i++){const[gx,gz]=findSpawn(i,cnt);monsters.push(new Monster(gx,gz,spd));}
+  updateMonBar(cnt);
+  startExitHum(exitPos.x*CELL, exitPos.z*CELL);   // 출구 저주파 험 (방향 탐색 단서)
+  document.getElementById('hudLv').textContent=lv;
+  document.getElementById('hudSt').textContent=0;
+  document.getElementById('hudEsc').textContent=escaped;
+  document.getElementById('danger').style.opacity='0';
+  gameActive=true;
+}
+function onEscape(){
+  gameActive=false;escaped++;stopExitHum();playEscape();
+  document.getElementById('winSub').textContent='Level '+level+' cleared · Steps: '+steps;
+  showScreen('winScreen');
+  const fl=document.getElementById('flash');fl.style.opacity='.6';setTimeout(()=>fl.style.opacity='0',200);
+}
+function onDeath(){
+  gameActive=false;stopExitHum();playDeath();
+  document.getElementById('deadSub').textContent='Level '+level+' · Steps: '+steps;
+  showScreen('deadScreen');
+  const fl=document.getElementById('flash');fl.style.opacity='.92';setTimeout(()=>fl.style.opacity='0',220);
+}
+function showScreen(id){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.add('hidden'));
+  if(id)document.getElementById(id).classList.remove('hidden');
+}
+document.getElementById('startBtn').addEventListener('click',()=>{unlockAudio();showScreen(null);startLevel(1);});
+document.getElementById('nextBtn').addEventListener('click',()=>{unlockAudio();showScreen(null);startLevel(level+1);});
+document.getElementById('retryBtn').addEventListener('click',()=>{unlockAudio();showScreen(null);startLevel(level);});
+
+// ── 성능 계측 ──
+const perfEl=document.getElementById('perf');
+const pFps=document.getElementById('pFps'), pMs=document.getElementById('pMs');
+const pMin=document.getElementById('pMin'), pAvg=document.getElementById('pAvg');
+const pCalls=document.getElementById('pCalls'), pTris=document.getElementById('pTris');
+const pLights=document.getElementById('pLights'), pObjs=document.getElementById('pObjs');
+let perfOn=true;
+let _frames=0,_accum=0;                       // 표시 구간(1초) 집계
+let _minFps=Infinity;                          // 세션 최저 FPS (계속 유지)
+let _totFrames=0,_totTime=0;                   // 세션 전체 평균용
+let _worstCalls=0;                             // 세션 최대 draw call
+
+function resetPerfStats(){
+  _minFps=Infinity;_totFrames=0;_totTime=0;_worstCalls=0;
+  _frames=0;_accum=0;
+  pMin.textContent='--';pAvg.textContent='--';
+  perfEl.style.borderColor='rgba(255,220,120,.9)';
+  setTimeout(()=>perfEl.style.borderColor='',300);
+}
+
+// 1회 탭 = 기록 초기화 / 3회 연속 탭 = 표시 토글
+let _tapCount=0,_tapTimer=null;
+function handlePerfTap(){
+  _tapCount++;
+  clearTimeout(_tapTimer);
+  if(_tapCount>=3){
+    _tapCount=0; perfOn=!perfOn;
+    perfEl.classList.toggle('hidden',!perfOn);
+    return;
+  }
+  _tapTimer=setTimeout(()=>{
+    if(_tapCount===1) resetPerfStats();
+    _tapCount=0;
+  },450);
+}
+const perfToggleEl=document.getElementById('perfToggle');
+perfToggleEl.addEventListener('touchstart',e=>{e.preventDefault();handlePerfTap();},{passive:false});
+perfToggleEl.addEventListener('click',()=>handlePerfTap());
+
+function cls(v,warn,bad){return v>=bad?'pv bad':v>=warn?'pv warn':'pv';}
+
+function updatePerf(rawDt){
+  if(!perfOn||rawDt<=0) return;
+
+  // 세션 누적 (표시 주기와 무관하게 항상 기록)
+  _totFrames++; _totTime+=rawDt;
+  _frames++; _accum+=rawDt;
+
+  const info=renderer.info.render;
+  if(info.calls>_worstCalls) _worstCalls=info.calls;
+
+  if(_accum<1.0) return;                        // 1초마다만 화면 갱신
+
+  const fps=_frames/_accum;
+  const ms=(_accum/_frames)*1000;
+  _frames=0; _accum=0;
+
+  // 로딩 직후 첫 구간은 튀므로 최저값 집계에서 제외
+  if(_totTime>2.0 && fps<_minFps) _minFps=fps;
+
+  let lightCount=0,objCount=0;
+  scene.traverse(o=>{ if(o.isLight)lightCount++; if(o.isMesh)objCount++; });
+
+  pFps.textContent=fps.toFixed(0);
+  pFps.className=fps<30?'pv bad':fps<55?'pv warn':'pv';
+  pMs.textContent='('+ms.toFixed(1)+'ms)';
+
+  if(_minFps<Infinity){
+    pMin.textContent=_minFps.toFixed(0);
+    pMin.className=_minFps<30?'pv bad':_minFps<55?'pv warn':'pv';
+  }
+  const avg=_totFrames/_totTime;
+  pAvg.textContent=avg.toFixed(0);
+  pAvg.className=avg<30?'pv bad':avg<55?'pv warn':'pv';
+
+  pCalls.textContent=info.calls;
+  pCalls.className=cls(info.calls,150,400);
+  pTris.textContent=(info.triangles/1000).toFixed(1)+'k';
+  pLights.textContent=lightCount;
+  pLights.className=cls(lightCount,9,16);
+  pObjs.textContent=objCount;
+  pObjs.className=cls(objCount,150,400);
+}
+
+// ── GAME LOOP ──
+const clock=new THREE.Clock();
+let mmTick=0;
+function animate(){
+  requestAnimationFrame(animate);
+  const rawDt=clock.getDelta();          // 클램프 전 실제 프레임 간격 (계측용)
+  const dt=Math.min(rawDt,.05);          // 게임 로직용 (물리 폭주 방지)
+  const t=clock.elapsedTime;
+  try{
+    if(gameActive){
+      // player move — 회전은 우측 스와이프에서 직접 P.yaw를 갱신(위 lZone 리스너), 키보드 좌우도 함께 반영
+      P.yaw+=(K.tL-K.tR)*TURN_SPD*dt;
+
+      const fwd=-(K.f-K.b)+(-jFwd);
+      const strafe=dSide; // 좌측 D-pad 좌/우 버튼 — 캐릭터 기준 좌우 횡이동
+      const sin=Math.sin(P.yaw),cos=Math.cos(P.yaw);
+      // 전방 벡터: (-sin,-cos)  /  우측 벡터: (cos,-sin) — 횡이동은 우측 벡터를 사용
+      const dvx=-sin*fwd*PLAYER_SPD + cos*strafe*PLAYER_SPD;
+      const dvz=-cos*fwd*PLAYER_SPD - sin*strafe*PLAYER_SPD;
+      const bl=Math.min(ACCEL*dt,1);
+      P.vx+=(dvx-P.vx)*bl;P.vz+=(dvz-P.vz)*bl;
+      if(Math.abs(fwd)<.05&&Math.abs(strafe)<.05){P.vx*=Math.max(0,1-FRIC*dt);P.vz*=Math.max(0,1-FRIC*dt);}
+      P.spd=Math.sqrt(P.vx*P.vx+P.vz*P.vz);
+      const nx=P.x+P.vx*dt,nz=P.z+P.vz*dt;
+      if(!blocked(nx,P.z))P.x=nx;else P.vx*=-.04;
+      if(!blocked(P.x,nz))P.z=nz;else P.vz*=-.04;
+      // bob
+      const moving=P.spd>.25;
+      if(moving)bob.phase+=dt*7.2*(P.spd/PLAYER_SPD);else bob.phase+=dt*3.5;
+      const hc=0|bob.phase/Math.PI;
+      if(moving&&hc!==lastStep){lastStep=hc;footstep();steps++;document.getElementById('hudSt').textContent=steps;}
+      bob.y=moving?Math.sin(bob.phase)*.058:Math.sin(bob.phase)*.004;
+      bob.roll=moving?Math.sin(bob.phase*.5)*.009:0;
+      // camera
+      camera.position.set(P.x,1.22+bob.y,P.z);
+      camera.rotation.order='YXZ';camera.rotation.y=P.yaw;camera.rotation.x=0;camera.rotation.z=bob.roll;
+      // monsters
+      for(const m of monsters)m.update(dt,level,t);
+      // death check
+      for(const m of monsters)if(m.distToPlayer()<MON_KILL_R){onDeath();return;}
+      // exit check
+      if(Math.round(P.x/CELL)===exitPos.x&&Math.round(P.z/CELL)===exitPos.z){onEscape();return;}
+      updateVisibility();
+      if((mmTick++%4)===0)drawMM();
+      updateDanger();
+
+      // ── 공간 오디오 ──
+      updateAudioListener();          // 귀 위치/방향을 카메라에 동기화
+
+      // 가장 가까운 몬스터 거리에 따라 심장박동 (가까울수록 빠르게)
+      let nearest=Infinity;
+      for(const m of monsters) nearest=Math.min(nearest,m.distToPlayer());
+      if(nearest<7){
+        const inten=Math.min(1,(7-nearest)/6);
+        const interval=0.95-inten*0.5;   // 가까울수록 짧은 간격
+        if(t-_lastHeartbeat>interval){ _lastHeartbeat=t; heartbeat(inten); }
+      }
+
+      // 횃불 탁탁 소리 — 활성 광원 중 하나에서 가끔 (초당 약 1.2회)
+      if(Math.random()<dt*1.2){
+        const on=torchLightPool.filter(l=>l.userData.on);
+        if(on.length){
+          const l=on[(Math.random()*on.length)|0];
+          torchCrackle(l.position.x,l.position.y,l.position.z);
+        }
+      }
+    }
+    // 횃불 광원 재배치 (가장 가까운 N개만 실제 광원으로 사용)
+    updateTorchLights(dt,t);
+    // 활성화된 풀 광원만 깜빡임 적용 (최대 MAX_TORCH_LIGHTS개)
+    for(const l of torchLightPool){
+      if(!l.userData.on){continue;}
+      const ph=l.userData.td?l.userData.td.phase:0;
+      l.intensity=Math.max(.5, 2.6
+        +Math.sin(t*7.3+ph)*.5 +Math.sin(t*13.1+ph*1.7)*.25
+        +Math.sin(t*3.2+ph*.5)*.4 +(Math.random()-.5)*.35);
+    }
+    for(const fl of torchFlames){
+      fl.scale.x=1+Math.sin(t*9+fl.position.x)*.12;
+      fl.scale.z=1+Math.sin(t*11+fl.position.z)*.12;
+      fl.scale.y=1+Math.sin(t*6+fl.position.z)*.18;
+    }
+    // 캐싱된 portal/exitLight 직접 참조
+    if(cachedPortal){cachedPortal.rotation.y=t*.8;cachedPortal.material.emissiveIntensity=1.2+Math.sin(t*2.8)*.6;}
+    if(cachedExitLight){
+      const dxE=exitPos.x*CELL-P.x, dzE=exitPos.z*CELL-P.z;
+      cachedExitLight.intensity=((dxE*dxE+dzE*dzE)<6*6) ? 4+Math.sin(t*3)*1.5 : 0;
+    }
+    renderer.render(scene,camera);
+    // renderer.info.render는 render() 시작 시 리셋되므로 반드시 렌더 직후에 읽어야 함
+    updatePerf(rawDt);
+  }catch(err){
+    // 예외가 나도 루프를 죽이지 않고 콘솔에만 기록 — 게임이 통째로 멈추는 것 방지
+    console.error('[ANIMATE LOOP ERROR]', err);
+  }
+}
+window.addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
+animate();
+showScreen('titleScreen');
+if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+</script>
+</body>
+</html>

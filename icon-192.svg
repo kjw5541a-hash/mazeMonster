@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
+  <rect width="192" height="192" fill="#0a0a1a"/>
+  <!-- Maze pattern -->
+  <rect x="16" y="16" width="160" height="16" fill="#00ffff" opacity="0.9"/>
+  <rect x="16" y="16" width="16" height="160" fill="#00ffff" opacity="0.9"/>
+  <rect x="16" y="160" width="160" height="16" fill="#00ffff" opacity="0.9"/>
+  <rect x="160" y="16" width="16" height="160" fill="#00ffff" opacity="0.9"/>
+  <!-- inner maze -->
+  <rect x="48" y="48" width="80" height="12" fill="#0088ff" opacity="0.7"/>
+  <rect x="48" y="48" width="12" height="80" fill="#0088ff" opacity="0.7"/>
+  <rect x="116" y="60" width="12" height="56" fill="#0088ff" opacity="0.7"/>
+  <rect x="60" y="116" width="56" height="12" fill="#0088ff" opacity="0.7"/>
+  <!-- player dot -->
+  <circle cx="60" cy="60" r="10" fill="#00ffff">
+    <animate attributeName="opacity" values="1;0.4;1" dur="1.5s" repeatCount="indefinite"/>
+  </circle>
+  <!-- exit -->
+  <rect x="126" y="126" width="18" height="18" fill="#ff00ff" opacity="0.9">
+    <animate attributeName="opacity" values="1;0.5;1" dur="1s" repeatCount="indefinite"/>
+  </rect>
+</svg>
