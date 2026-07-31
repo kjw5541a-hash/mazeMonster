@@ -194,6 +194,14 @@ Recursive Backtracking으로 완전 미로 생성 후, **내부 벽의 18%를 �
 
 레벨당 마리 수 `min(level, 3)`, 레벨마다 속도 +12%. 접촉 시 즉사(`MON_KILL_R = 0.7`).
 
+**발각 순간** — `onSpotted()`가 `playShriek()`(높고 날카로운 비명)을 울리고
+`CHARGE_TIME`(1.5초) 동안 속도에 `CHARGE_BOOST`(×1.35)를 곱해 달려듭니다.
+추격이 이어지는 동안에는 `SNARL_MIN`~`+SNARL_VAR` 간격으로 `playGrowl()`을 반복합니다
+(18칸 밖은 소리가 뭉치므로 생략).
+
+> `CHARGE_TIME` / `CHARGE_BOOST` / `SNARL_*`는 **난이도와 체감에 직결되는 값**입니다.
+> 사용자가 직접 플레이하며 조정할 값이므로 임의로 올리지 마십시오.
+
 ### 몬스터 외형 — 관절 리그
 
 몸통·머리·팔(2단)·다리를 `THREE.Group` 회전축에 매단 구조입니다.
@@ -236,10 +244,13 @@ Recursive Backtracking으로 완전 미로 생성 후, **내부 벽의 18%를 �
 |---|---|---|
 | 플레이어 발소리 | 2D | `footstep()` |
 | 몬스터 발소리 | **3D 위치** | `monsterStep(x, z)` |
-| 으르렁 | **3D 위치** | `playGrowl(x, z)` |
+| 발각 비명 | **3D 위치** | `playShriek(x, z)` |
+| 추격 중 으르렁 | **3D 위치** | `playGrowl(x, z)` |
 | 횃불 탁탁 | **3D 위치** | `torchCrackle(x, y, z)` |
-| 출구 험(루프) | **3D 위치** | `startExitHum()` / `stopExitHum()` |
 | 심장박동 | 2D, 거리 비례 | `heartbeat(intensity)` |
+
+출구의 저주파 험은 **의도적으로 제거**했습니다. 되살리지 마십시오.
+그 대가로 출구를 소리로 찾을 수 없어졌고, 미니맵이 유일한 단서입니다.
 
 **iOS 주의**: `AudioContext`는 사용자 제스처 안에서 `resume()`해야 소리가 납니다.
 시작/재시도/다음레벨 버튼에 `unlockAudio()`가 연결되어 있습니다.
