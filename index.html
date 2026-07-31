@@ -163,20 +163,27 @@ const MON_SIGHT_R=8,MON_HEAR_R=4,MON_KILL_R=0.7;
 //
 // 총 광원 수 = ambient 1 + 횃불 N + 몬스터 눈 M + 출구 1
 //   LOW 5 / MEDIUM 6 / HIGH 9 / ULTRA 11
+// ambient / torchRange / torchPower는 광원 "개수"를 늘리지 않고 밝기를 보정하는 축이다.
+// AmbientLight는 픽셀당 광원 순회에 들어가지 않고, PointLight의 distance·intensity는
+// 순회 횟수를 바꾸지 않으므로 셋 다 사실상 공짜다. 광원이 적은 프리셋일수록 이 값을 올려
+// 횃불 사이 구간이 캄캄해지는 것을 막는다.
 const QUALITY_PRESETS={
-  LOW:   {label:'LOW',  prCap:1.0,scale:0.6,torchLights:2,monLights:1,texSize:128,aniso:1,aa:false,matType:'phong',   torchInterval:0.20,mmInterval:8,panning:'equalpower',targetFps:30},
-  MEDIUM:{label:'MED',  prCap:1.5,scale:0.8,torchLights:3,monLights:1,texSize:256,aniso:1,aa:false,matType:'phong',   torchInterval:0.15,mmInterval:6,panning:'HRTF',      targetFps:55},
-  HIGH:  {label:'HIGH', prCap:2.0,scale:1.0,torchLights:4,monLights:3,texSize:256,aniso:4,aa:true, matType:'standard',torchInterval:0.12,mmInterval:4,panning:'HRTF',      targetFps:55},
-  ULTRA: {label:'ULTRA',prCap:3.0,scale:1.0,torchLights:6,monLights:3,texSize:512,aniso:0,aa:true, matType:'standard',torchInterval:0.10,mmInterval:4,panning:'HRTF',      targetFps:60},
+  LOW:   {label:'LOW',  prCap:1.0,scale:0.6,torchLights:2,monLights:1,texSize:128,aniso:1,aa:false,matType:'phong',   torchInterval:0.20,mmInterval:8,panning:'equalpower',targetFps:30,ambient:3.6,torchRange:8.5,torchPower:1.10},
+  MEDIUM:{label:'MED',  prCap:1.5,scale:0.8,torchLights:3,monLights:1,texSize:256,aniso:1,aa:false,matType:'phong',   torchInterval:0.15,mmInterval:6,panning:'HRTF',      targetFps:55,ambient:3.4,torchRange:7.8, torchPower:1.05},
+  HIGH:  {label:'HIGH', prCap:2.0,scale:1.0,torchLights:4,monLights:3,texSize:256,aniso:4,aa:true, matType:'standard',torchInterval:0.12,mmInterval:4,panning:'HRTF',      targetFps:55,ambient:3.2,torchRange:7.0, torchPower:1.00},
+  ULTRA: {label:'ULTRA',prCap:3.0,scale:1.0,torchLights:6,monLights:3,texSize:512,aniso:0,aa:true, matType:'standard',torchInterval:0.10,mmInterval:4,panning:'HRTF',      targetFps:60,ambient:3.2,torchRange:7.0, torchPower:1.00},
 };
 const QKEY='de_quality';
 const isMobile=/iPhone|iPad|Android/i.test(navigator.userAgent);
 
+// iOS Safari는 deviceMemory를 노출하지 않고 hardwareConcurrency도 대부분 4로 보고한다.
+// 따라서 모바일에서 `cores<=4`를 LOW 조건으로 쓰면 최신 아이폰까지 전부 LOW로 떨어진다.
+// 모바일은 확실히 낮은 신호(코어 2개 이하 또는 메모리 2GB 이하)일 때만 LOW로 보낸다.
 function detectQuality(){
-  const cores=navigator.hardwareConcurrency||2;
-  const mem=navigator.deviceMemory||(isMobile?4:8);
-  if(isMobile) return (cores<=4||mem<=3)?'LOW':'MEDIUM';
-  return (cores<=4||mem<=4)?'MEDIUM':'HIGH';
+  const cores=navigator.hardwareConcurrency||4;
+  const mem=navigator.deviceMemory;                    // 미지원이면 undefined
+  if(isMobile) return (cores<=2||mem<=2)?'LOW':'MEDIUM';
+  return (cores<=4||(mem!==undefined&&mem<=4))?'MEDIUM':'HIGH';
 }
 function loadQualityName(){
   let n=null;
@@ -228,7 +235,8 @@ scene.background=new THREE.Color(0x080a10);
 scene.fog=new THREE.FogExp2(0x080a10,0.058);
 const camera=new THREE.PerspectiveCamera(80,innerWidth/innerHeight,0.05,60);
 scene.add(camera);
-scene.add(new THREE.AmbientLight(0x1a1e2a,3.2));
+// AmbientLight는 픽셀당 광원 순회 비용이 없다 — 광원이 적은 프리셋의 암부를 메우는 데 쓴다
+scene.add(new THREE.AmbientLight(0x1a1e2a,Q.ambient));
 
 // ── DUNGEON TEXTURES ──
 // 모든 좌표·크기·반복 횟수는 256px 기준으로 작성한 뒤 s=size/256 을 곱한다.
@@ -423,7 +431,7 @@ const worldObjs=[],torchFlames=[];
 const torchData=[];              // {x,y,z,phase}
 const torchLightPool=[];         // 재사용되는 실제 PointLight (개수 = MAX_TORCH_LIGHTS)
 let MAX_TORCH_LIGHTS=Q.torchLights;   // ★ 품질 프리셋이 정함 (LOW 2 / MED 3 / HIGH 4 / ULTRA 6)
-const TORCH_RANGE=7;             // 광원 유효 반경 (이 밖은 어차피 기여 0)
+const TORCH_RANGE=Q.torchRange;  // 광원 유효 반경 (이 밖은 어차피 기여 0). 광원이 적을수록 넓힌다
 let cachedPortal=null,cachedExitLight=null;
 function isWall(gx,gz){if(gx<0||gz<0||gx>=MW||gz>=MH)return true;return mazeGrid[gz][gx]===0;}
 function addO(o){scene.add(o);worldObjs.push(o);return o;}
@@ -1277,7 +1285,7 @@ function animate(){
       const ph=l.userData.td?l.userData.td.phase:0;
       l.intensity=Math.max(.5, 2.6
         +Math.sin(t*7.3+ph)*.5 +Math.sin(t*13.1+ph*1.7)*.25
-        +Math.sin(t*3.2+ph*.5)*.4 +(Math.random()-.5)*.35);
+        +Math.sin(t*3.2+ph*.5)*.4 +(Math.random()-.5)*.35)*Q.torchPower;
     }
     for(const fl of torchFlames){
       fl.scale.x=1+Math.sin(t*9+fl.position.x)*.12;
