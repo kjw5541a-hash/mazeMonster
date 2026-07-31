@@ -33,7 +33,7 @@ body{background:#080a10;overflow:hidden;font-family:'Courier New',monospace;touc
 #perf .lb{display:inline-block;width:52px;opacity:.65;}
 #perf .sep{border-top:1px solid rgba(120,255,150,.2);margin:5px 0;}
 #perf .hint{font-size:9px;opacity:.45;letter-spacing:0;}
-#perfToggle{position:fixed;top:78px;left:12px;width:172px;height:150px;z-index:31;
+#perfToggle{position:fixed;top:78px;left:12px;width:172px;height:186px;z-index:31;
             pointer-events:all;background:transparent;}
 #vig{position:fixed;inset:0;pointer-events:none;z-index:5;background:radial-gradient(ellipse at center,transparent 50%,rgba(0,0,0,.78) 100%);}
 #danger{position:fixed;inset:0;pointer-events:none;z-index:6;opacity:0;background:radial-gradient(ellipse at center,transparent 40%,rgba(180,0,0,.65) 100%);transition:opacity .25s;}
@@ -58,6 +58,13 @@ body{background:#080a10;overflow:hidden;font-family:'Courier New',monospace;touc
 #flash{position:fixed;inset:0;background:#200;opacity:0;pointer-events:none;z-index:90;transition:opacity .15s;}
 #monsterBar{position:fixed;top:68px;left:50%;transform:translateX(-50%);display:flex;gap:8px;z-index:10;pointer-events:none;}
 .mIcon{font-size:18px;filter:drop-shadow(0 0 4px red);}
+/* 품질 프리셋 선택 (타이틀 화면 전용) */
+#qbar{display:flex;gap:6px;margin-top:2px;}
+.qbtn{padding:7px 13px;background:transparent;border:1px solid rgba(255,102,34,.4);
+      color:rgba(255,140,70,.7);font-family:'Courier New',monospace;font-size:10px;
+      letter-spacing:2px;cursor:pointer;-webkit-tap-highlight-color:transparent;}
+.qbtn.on{border-color:#ff6622;color:#ff6622;background:rgba(255,80,0,.15);box-shadow:0 0 8px rgba(255,80,0,.35);}
+.qnote{font-size:8px;letter-spacing:1px;color:rgba(255,160,60,.42);}
 @keyframes flicker{0%,93%,100%{opacity:1}94%{opacity:.5}95%{opacity:1}97%{opacity:.3}}
 </style>
 </head>
@@ -81,6 +88,8 @@ body{background:#080a10;overflow:hidden;font-family:'Courier New',monospace;touc
   <div><span class="lb">LIGHT</span><span class="pv" id="pLights">--</span></div>
   <div><span class="lb">TRIS</span><span class="pv" id="pTris">--</span></div>
   <div><span class="lb">OBJ</span><span class="pv" id="pObjs">--</span></div>
+  <div class="sep"></div>
+  <div><span class="lb">품질</span><span class="pv" id="pQual">--</span> <span class="pv" id="pScale" style="opacity:.6"></span></div>
   <div class="sep"></div>
   <div class="hint">1회 탭=기록초기화 · 3회=숨김</div>
 </div>
@@ -107,6 +116,9 @@ body{background:#080a10;overflow:hidden;font-family:'Courier New',monospace;touc
   <div class="ssub">괴물을 피해 탈출하라</div>
   <div class="ssub" style="font-size:9px;opacity:.5;margin-top:4px">LEFT:십자키(전후/횡이동) RIGHT:스와이프 회전 WASD</div>
   <button class="sbtn" id="startBtn">START</button>
+  <div class="ssub" style="font-size:9px;opacity:.55;margin-top:6px">QUALITY</div>
+  <div id="qbar"></div>
+  <div class="qnote" id="qnote"></div>
 </div>
 <div class="screen hidden" id="winScreen">
   <div class="badge">🏃</div>
@@ -139,6 +151,42 @@ const MON_COUNT=lv=>Math.min(lv,3);
 const MON_BASE_SPD=2.2,MON_SPD_INC=0.12;
 const MON_SIGHT_R=8,MON_HEAR_R=4,MON_KILL_R=0.7;
 
+// ── QUALITY PRESETS ──
+// 설계 원칙
+//  1) 광원 개수 / 텍스처 해상도 / 재질 타입 / antialias 는 "부팅 시점 상수"로 취급한다.
+//     antialias는 WebGL 컨텍스트 생성 파라미터라 런타임 변경이 불가능하고, 나머지도 전면
+//     재생성이 필요하다. 따라서 프리셋 변경은 localStorage 저장 후 reload로만 적용한다.
+//  2) 런타임에 움직이는 축은 renderScale 하나뿐. 해상도만 건드리므로 셰이더 재컴파일이 없다.
+//     (적응형 자동 조절이 광원을 만지면 hitching이 발생한다 — 절대 금지)
+//  3) 게임 밸런스 값(fog 밀도, 몬스터 시야·청각·속도)은 프리셋에 넣지 않는다.
+//     품질 설정으로 난이도가 달라지면 안 된다.
+//
+// 총 광원 수 = ambient 1 + 횃불 N + 몬스터 눈 M + 출구 1
+//   LOW 5 / MEDIUM 6 / HIGH 9 / ULTRA 11
+const QUALITY_PRESETS={
+  LOW:   {label:'LOW',  prCap:1.0,scale:0.6,torchLights:2,monLights:1,texSize:128,aniso:1,aa:false,matType:'phong',   torchInterval:0.20,mmInterval:8,panning:'equalpower',targetFps:30},
+  MEDIUM:{label:'MED',  prCap:1.5,scale:0.8,torchLights:3,monLights:1,texSize:256,aniso:1,aa:false,matType:'phong',   torchInterval:0.15,mmInterval:6,panning:'HRTF',      targetFps:55},
+  HIGH:  {label:'HIGH', prCap:2.0,scale:1.0,torchLights:4,monLights:3,texSize:256,aniso:4,aa:true, matType:'standard',torchInterval:0.12,mmInterval:4,panning:'HRTF',      targetFps:55},
+  ULTRA: {label:'ULTRA',prCap:3.0,scale:1.0,torchLights:6,monLights:3,texSize:512,aniso:0,aa:true, matType:'standard',torchInterval:0.10,mmInterval:4,panning:'HRTF',      targetFps:60},
+};
+const QKEY='de_quality';
+const isMobile=/iPhone|iPad|Android/i.test(navigator.userAgent);
+
+function detectQuality(){
+  const cores=navigator.hardwareConcurrency||2;
+  const mem=navigator.deviceMemory||(isMobile?4:8);
+  if(isMobile) return (cores<=4||mem<=3)?'LOW':'MEDIUM';
+  return (cores<=4||mem<=4)?'MEDIUM':'HIGH';
+}
+function loadQualityName(){
+  let n=null;
+  try{n=localStorage.getItem(QKEY);}catch(_){}
+  return QUALITY_PRESETS[n]?n:detectQuality();
+}
+const QNAME=loadQualityName();
+const Q=QUALITY_PRESETS[QNAME];
+let renderScale=Q.scale;   // 적응형이 조절하는 유일한 런타임 값
+
 // ── MAZE GENERATOR (loop maze) ──
 function generateMaze(W,H){
   const g=Array.from({length:H},()=>new Array(W).fill(0));
@@ -166,10 +214,14 @@ function generateMaze(W,H){
 
 // ── THREE SETUP ──
 const cv=document.getElementById('canvas');
-const isMobile=/iPhone|iPad|Android/i.test(navigator.userAgent);
-const renderer=new THREE.WebGLRenderer({canvas:cv,antialias:!isMobile});
-renderer.setPixelRatio(Math.min(devicePixelRatio,isMobile?1.5:2));
+const renderer=new THREE.WebGLRenderer({canvas:cv,antialias:Q.aa});
+// setPixelRatio는 내부에서 setSize(w,h,false)를 호출하므로 별도 리사이즈가 필요 없다.
+function applyRenderScale(){
+  renderer.setPixelRatio(Math.min(devicePixelRatio,Q.prCap)*renderScale);
+}
+applyRenderScale();
 renderer.setSize(innerWidth,innerHeight);
+const MAX_ANISO=renderer.capabilities.getMaxAnisotropy();
 renderer.shadowMap.enabled=false;
 const scene=new THREE.Scene();
 scene.background=new THREE.Color(0x080a10);
@@ -179,8 +231,19 @@ scene.add(camera);
 scene.add(new THREE.AmbientLight(0x1a1e2a,3.2));
 
 // ── DUNGEON TEXTURES ──
+// 모든 좌표·크기·반복 횟수는 256px 기준으로 작성한 뒤 s=size/256 을 곱한다.
+// 그냥 캔버스 크기만 바꾸면 128에서는 벽돌이 2×4개만 나오고, 바닥 타일 좌표(최대 256)가
+// 캔버스 밖으로 넘어가 타일링 이음새에 빈 영역이 드러난다.
+function finishTex(t,rep){
+  t.wrapS=t.wrapT=THREE.RepeatWrapping;
+  t.anisotropy=Q.aniso===0?MAX_ANISO:Math.min(Q.aniso,MAX_ANISO);
+  if(rep)t.repeat.set(rep,rep);
+  return t;
+}
+
 // 잘라낸 돌벽돌(cut stone) — 줄눈 + 이끼 얼룩 + 거친 표면
-function makeDungeonWall(w,h){
+function makeDungeonWall(size){
+  const w=size,h=size,s=size/256,px=Math.max(1,s);
   const c=document.createElement('canvas');c.width=w;c.height=h;
   const ctx=c.getContext('2d');
 
@@ -188,7 +251,7 @@ function makeDungeonWall(w,h){
   ctx.fillStyle='#2e3340';ctx.fillRect(0,0,w,h);
 
   // 벽돌 블록 패턴
-  const bW=64,bH=32; // 벽돌 크기
+  const bW=64*s,bH=32*s; // 벽돌 크기
   for(let row=0;row<Math.ceil(h/bH)+1;row++){
     const offset=(row%2)*bW/2;
     for(let col=-1;col<Math.ceil(w/bW)+1;col++){
@@ -197,16 +260,16 @@ function makeDungeonWall(w,h){
       const v=Math.floor(Math.random()*18-9);
       const r=46+v,g=51+v,b=64+v;
       ctx.fillStyle=`rgb(${r},${g},${b})`;
-      ctx.fillRect(x+1,y+1,bW-2,bH-2);
+      ctx.fillRect(x+px,y+px,bW-2*px,bH-2*px);
       // 벽돌 내부 음영 (입체감)
       ctx.fillStyle='rgba(0,0,0,0.18)';
-      ctx.fillRect(x+1,y+bH-4,bW-2,3);
+      ctx.fillRect(x+px,y+bH-4*s,bW-2*px,Math.max(1,3*s));
       ctx.fillStyle='rgba(255,255,255,0.04)';
-      ctx.fillRect(x+1,y+1,bW-2,3);
+      ctx.fillRect(x+px,y+px,bW-2*px,Math.max(1,3*s));
     }
   }
   // 줄눈 (mortar lines) — 어두운 회색
-  ctx.strokeStyle='#141820';ctx.lineWidth=2;
+  ctx.strokeStyle='#141820';ctx.lineWidth=Math.max(1,2*s);
   for(let row=0;row<Math.ceil(h/bH)+1;row++){
     const offset=(row%2)*bW/2;
     // 가로줄
@@ -216,10 +279,11 @@ function makeDungeonWall(w,h){
       ctx.beginPath();ctx.moveTo(col*bW+offset,row*bH);ctx.lineTo(col*bW+offset,(row+1)*bH);ctx.stroke();
     }
   }
-  // 이끼/얼룩 (하단부 집중)
-  for(let i=0;i<60;i++){
+  // 이끼/얼룩 (하단부 집중) — 개수는 면적에 비례
+  const moss=Math.max(12,Math.round(60*s*s));
+  for(let i=0;i<moss;i++){
     const x=Math.random()*w,y=h*0.4+Math.random()*h*0.6;
-    const r2=3+Math.random()*10;
+    const r2=(3+Math.random()*10)*s;
     const gr=ctx.createRadialGradient(x,y,0,x,y,r2);
     gr.addColorStop(0,'rgba(30,55,25,0.45)');gr.addColorStop(1,'transparent');
     ctx.fillStyle=gr;ctx.beginPath();ctx.arc(x,y,r2,0,Math.PI*2);ctx.fill();
@@ -228,73 +292,94 @@ function makeDungeonWall(w,h){
   for(let i=0;i<8;i++){
     const x=Math.random()*w;
     ctx.fillStyle='rgba(10,15,30,0.22)';
-    ctx.fillRect(x,Math.random()*h*0.5,2+Math.random()*3,h*0.4+Math.random()*h*0.3);
+    ctx.fillRect(x,Math.random()*h*0.5,(2+Math.random()*3)*s,h*0.4+Math.random()*h*0.3);
   }
-  const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;t.repeat.set(1,1);return t;
+  return finishTex(new THREE.CanvasTexture(c),1);
 }
 
-function makeDungeonFloor(w,h){
+function makeDungeonFloor(size){
+  const w=size,h=size,s=size/256,px=Math.max(1,s);
   const c=document.createElement('canvas');c.width=w;c.height=h;
   const ctx=c.getContext('2d');
   ctx.fillStyle='#1a1c22';ctx.fillRect(0,0,w,h);
-  // 석판 패턴 (불규칙한 사각형)
+  // 석판 패턴 (불규칙한 사각형) — 256px 기준 좌표에 s를 곱해 사용
   const tiles=[[0,0,48,48],[48,0,40,48],[88,0,56,48],[144,0,50,48],[194,0,62,48],
                [0,48,62,44],[62,48,44,44],[106,48,58,44],[164,48,48,44],[212,48,44,44]];
-  for(const[tx,ty,tw,th] of tiles){
+  for(const[tx0,ty0,tw0,th0] of tiles){
+    const tx=tx0*s,ty=ty0*s,tw=tw0*s,th=th0*s;
     const v=Math.floor(Math.random()*12);
     ctx.fillStyle=`rgb(${32+v},${35+v},${44+v})`;
-    ctx.fillRect(tx+1,ty+1,tw-2,th-2);
+    ctx.fillRect(tx+px,ty+px,tw-2*px,th-2*px);
     ctx.fillStyle='rgba(0,0,0,0.3)';
-    ctx.fillRect(tx+1,ty+th-3,tw-2,2);
+    ctx.fillRect(tx+px,ty+th-3*s,tw-2*px,Math.max(1,2*s));
   }
   // 줄눈
-  ctx.strokeStyle='#0e1016';ctx.lineWidth=2;
-  for(let x=0;x<w;x+=48){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke();}
-  for(let y=0;y<h;y+=48){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();}
+  ctx.strokeStyle='#0e1016';ctx.lineWidth=Math.max(1,2*s);
+  for(let x=0;x<w;x+=48*s){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke();}
+  for(let y=0;y<h;y+=48*s){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();}
   // 이끼/물때
-  for(let i=0;i<40;i++){
-    const x=Math.random()*w,y=Math.random()*h,r=2+Math.random()*7;
+  const moss=Math.max(8,Math.round(40*s*s));
+  for(let i=0;i<moss;i++){
+    const x=Math.random()*w,y=Math.random()*h,r=(2+Math.random()*7)*s;
     const gr=ctx.createRadialGradient(x,y,0,x,y,r);
     gr.addColorStop(0,'rgba(20,40,18,0.4)');gr.addColorStop(1,'transparent');
     ctx.fillStyle=gr;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();
   }
-  const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;t.repeat.set(3,3);return t;
+  return finishTex(new THREE.CanvasTexture(c),3);
 }
 
-function makeDungeonCeil(w,h){
+function makeDungeonCeil(size){
+  const w=size,h=size,s=size/256;
   const c=document.createElement('canvas');c.width=w;c.height=h;
   const ctx=c.getContext('2d');
   ctx.fillStyle='#111318';ctx.fillRect(0,0,w,h);
   // 거친 돌 천장 — 불규칙 균열
-  for(let i=0;i<200;i++){
-    const x=Math.random()*w,y=Math.random()*h,r=1+Math.random()*6;
+  const blobs=Math.max(40,Math.round(200*s*s));
+  for(let i=0;i<blobs;i++){
+    const x=Math.random()*w,y=Math.random()*h,r=(1+Math.random()*6)*s;
     const gr=ctx.createRadialGradient(x,y,0,x,y,r);
     gr.addColorStop(0,'rgba(0,0,0,0.35)');gr.addColorStop(1,'transparent');
     ctx.fillStyle=gr;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();
   }
   ctx.strokeStyle='rgba(0,0,0,0.25)';
-  for(let i=0;i<14;i++){
-    ctx.lineWidth=.5+Math.random()*1.2;ctx.beginPath();
+  const cracks=Math.max(4,Math.round(14*s*s));
+  for(let i=0;i<cracks;i++){
+    ctx.lineWidth=(.5+Math.random()*1.2)*s;ctx.beginPath();
     let cx=Math.random()*w,cy=Math.random()*h;ctx.moveTo(cx,cy);
-    for(let j=0;j<5;j++){cx+=Math.random()*20-10;cy+=Math.random()*20-10;ctx.lineTo(cx,cy);}
+    for(let j=0;j<5;j++){cx+=(Math.random()*20-10)*s;cy+=(Math.random()*20-10)*s;ctx.lineTo(cx,cy);}
     ctx.stroke();
   }
-  const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;return t;
+  return finishTex(new THREE.CanvasTexture(c),0);
 }
 
-const wallMap =makeDungeonWall(256,256);
-const floorMap=makeDungeonFloor(256,256);
-const ceilMap =makeDungeonCeil(256,256);
+const wallMap =makeDungeonWall(Q.texSize);
+const floorMap=makeDungeonFloor(Q.texSize);
+const ceilMap =makeDungeonCeil(Q.texSize);
+
+// 재질 팩토리 — LOW/MEDIUM은 MeshPhongMaterial로 대체한다.
+// MeshLambertMaterial을 쓰지 않는 이유: r128의 Lambert는 정점 단위(Gouraud) 조명이라
+// 세그먼트 1개짜리 BoxGeometry 벽(정점 8개)에서는 횃불 PointLight의 감쇠가 정점에서만
+// 계산되어 빛이 사각 얼룩으로 뭉개진다. 이 게임은 횃불 조명이 분위기의 핵심이라 치명적.
+// Phong은 픽셀 단위 조명을 유지하면서 Standard의 PBR 연산(BRDF)만 걷어낸다.
+function mkMat(o){
+  if(Q.matType!=='phong') return new THREE.MeshStandardMaterial(o);
+  const p={};
+  for(const k of ['map','color','emissive','emissiveIntensity','transparent','opacity','side'])
+    if(o[k]!==undefined)p[k]=o[k];
+  p.shininess=o.roughness!==undefined?Math.max(2,(1-o.roughness)*60):30;
+  p.specular=new THREE.Color((o.metalness||0)>0.4?0x555555:0x111111);
+  return new THREE.MeshPhongMaterial(p);
+}
 
 // 던전 색상 팔레트 — 청회색/슬레이트
-const mWall  =new THREE.MeshStandardMaterial({map:wallMap, color:0x8892a4,roughness:.88,metalness:.06,emissive:0x05080f,emissiveIntensity:.25});
-const mFloor =new THREE.MeshStandardMaterial({map:floorMap,color:0x555e6e,roughness:.95,metalness:.04,emissive:0x02040a,emissiveIntensity:.12});
-const mCeil  =new THREE.MeshStandardMaterial({map:ceilMap, color:0x333844,roughness:.97,metalness:.02,emissive:0x010208,emissiveIntensity:.08});
-const mFlame  =new THREE.MeshStandardMaterial({color:0xff8800,emissive:0xff6600,emissiveIntensity:3.5,transparent:true,opacity:.92});
-const mBrack  =new THREE.MeshStandardMaterial({color:0x3a3a3a,roughness:.6,metalness:.7}); // 철 브래킷
-const mExit   =new THREE.MeshStandardMaterial({color:0x00ff88,emissive:0x00ff88,emissiveIntensity:1.6,transparent:true,opacity:.88});
-const mMonBody=new THREE.MeshStandardMaterial({color:0x220000,roughness:.7,emissive:0x550000,emissiveIntensity:.5});
-const mMonEye =new THREE.MeshStandardMaterial({color:0xff0000,emissive:0xff0000,emissiveIntensity:3.0});
+const mWall  =mkMat({map:wallMap, color:0x8892a4,roughness:.88,metalness:.06,emissive:0x05080f,emissiveIntensity:.25});
+const mFloor =mkMat({map:floorMap,color:0x555e6e,roughness:.95,metalness:.04,emissive:0x02040a,emissiveIntensity:.12});
+const mCeil  =mkMat({map:ceilMap, color:0x333844,roughness:.97,metalness:.02,emissive:0x010208,emissiveIntensity:.08});
+const mFlame  =mkMat({color:0xff8800,emissive:0xff6600,emissiveIntensity:3.5,transparent:true,opacity:.92});
+const mBrack  =mkMat({color:0x3a3a3a,roughness:.6,metalness:.7}); // 철 브래킷
+const mExit   =mkMat({color:0x00ff88,emissive:0x00ff88,emissiveIntensity:1.6,transparent:true,opacity:.88});
+const mMonBody=mkMat({color:0x220000,roughness:.7,emissive:0x550000,emissiveIntensity:.5});
+const mMonEye =mkMat({color:0xff0000,emissive:0xff0000,emissiveIntensity:3.0});
 
 // ── PLAYER ──
 const P={x:CELL,z:CELL,yaw:0,targetYaw:0,vx:0,vz:0,spd:0};
@@ -337,7 +422,7 @@ const worldObjs=[],torchFlames=[];
 // 횃불 광원은 개별 생성하지 않고 "데이터"로만 보관 → 가장 가까운 N개만 실제 광원으로 배치
 const torchData=[];              // {x,y,z,phase}
 const torchLightPool=[];         // 재사용되는 실제 PointLight (개수 = MAX_TORCH_LIGHTS)
-let MAX_TORCH_LIGHTS=4;          // ★ 품질 설정으로 조절할 값
+let MAX_TORCH_LIGHTS=Q.torchLights;   // ★ 품질 프리셋이 정함 (LOW 2 / MED 3 / HIGH 4 / ULTRA 6)
 const TORCH_RANGE=7;             // 광원 유효 반경 (이 밖은 어차피 기여 0)
 let cachedPortal=null,cachedExitLight=null;
 function isWall(gx,gz){if(gx<0||gz<0||gx>=MW||gz>=MH)return true;return mazeGrid[gz][gx]===0;}
@@ -359,8 +444,8 @@ function initTorchLightPool(){
 let _torchUpdT=0;
 function updateTorchLights(dt,t){
   _torchUpdT-=dt;
-  if(_torchUpdT>0) return;      // 0.12초마다만 재배치 (충분히 부드러움)
-  _torchUpdT=0.12;
+  if(_torchUpdT>0) return;      // 프리셋별 주기마다만 재배치 (충분히 부드러움)
+  _torchUpdT=Q.torchInterval;
 
   // 유효 반경 안에 있는 횃불만 후보로 추림
   const cands=[];
@@ -399,7 +484,7 @@ function placeTorch(wx,wz,fdx,fdz){
   const fl=addO(new THREE.Mesh(new THREE.ConeGeometry(.1,.26,8),mFlame));
   fl.position.set(bx+fdx*.1,1.92,bz+fdz*.1);torchFlames.push(fl);
   addO(new THREE.Mesh(new THREE.SphereGeometry(.055,6,6),
-    new THREE.MeshStandardMaterial({color:0xffee88,emissive:0xffdd44,emissiveIntensity:4,transparent:true,opacity:.8})
+    mkMat({color:0xffee88,emissive:0xffdd44,emissiveIntensity:4,transparent:true,opacity:.8})
   )).position.copy(fl.position);
   // 실제 PointLight를 만들지 않고 위치 데이터만 등록
   torchData.push({x:bx+fdx*.1, y:1.98, z:bz+fdz*.1, phase:Math.random()*Math.PI*2});
@@ -431,7 +516,7 @@ function buildWorld(){
   el.position.set(exitPos.x*CELL,1.2,exitPos.z*CELL);el.userData.isExitLight=true;addO(el);
   cachedExitLight=el;
   const ring=addO(new THREE.Mesh(new THREE.RingGeometry(.6,.76,24),
-    new THREE.MeshStandardMaterial({color:0x00ff88,emissive:0x00ff88,emissiveIntensity:2,side:THREE.DoubleSide})));
+    mkMat({color:0x00ff88,emissive:0x00ff88,emissiveIntensity:2,side:THREE.DoubleSide})));
   ring.rotation.x=-Math.PI/2;ring.position.set(exitPos.x*CELL,.015,exitPos.z*CELL);
 
   initTorchLightPool();   // 횃불 광원 풀 생성 (개수 고정)
@@ -519,10 +604,7 @@ class Monster{
     this.group.add(body,head,eyeL,eyeR);
     this.group.position.set(this.wx,.1,this.wz);
     scene.add(this.group);worldObjs.push(this.group);
-
-    this.eLight=new THREE.PointLight(0xff0000,1.0,3.5);
-    this.eLight.position.set(this.wx,1.3,this.wz);
-    scene.add(this.eLight);worldObjs.push(this.eLight);
+    // 눈 광원은 몬스터마다 만들지 않는다 — monLightPool이 최근접 N마리에만 배치 (아래 참조)
   }
 
   seesPlayer(){
@@ -614,21 +696,47 @@ class Monster{
       if(!Number.isFinite(this.wx)||!Number.isFinite(this.wz)){this.wx=CELL;this.wz=CELL;this.gx=1;this.gz=1;}
     }
     this.group.position.set(this.wx,.1,this.wz);
-    this.eLight.position.set(this.wx,1.3,this.wz);
-    // 유효 반경 밖이면 세기를 0으로 (visible은 건드리지 않음 — 광원 개수 고정 유지)
-    const dxL=this.wx-P.x, dzL=this.wz-P.z;
-    if((dxL*dxL+dzL*dzL) < 5.5*5.5)
-      this.eLight.intensity=this.state==='chase'?2.0+Math.sin(t*8)*.8:.7+Math.sin(t*2)*.3;
-    else
-      this.eLight.intensity=0;
     const ei=this.state==='chase'?3+Math.sin(t*8):1.5;
     this.group.children[2].material.emissiveIntensity=ei;
     this.group.children[3].material.emissiveIntensity=ei;
   }
   distToPlayer(){const dx=this.wx-P.x,dz=this.wz-P.z;return Math.sqrt(dx*dx+dz*dz);}
-  remove(){scene.remove(this.group);scene.remove(this.eLight);}
+  remove(){scene.remove(this.group);}
 }
 let monsters=[];
+
+// 몬스터 눈 광원 풀 — 횃불과 동일한 패턴.
+// 개수는 부팅 시 Q.monLights로 고정하고 씬에 상주시킨다(레벨이 바뀌어도 제거하지 않음).
+// 몬스터 수에 맞춰 늘렸다 줄였다 하면 레벨 전환마다 셰이더가 재컴파일된다.
+const monLightPool=[];
+for(let i=0;i<Q.monLights;i++){
+  const l=new THREE.PointLight(0xff0000,0,3.5);
+  l.position.set(0,-9999,0);
+  scene.add(l);
+  monLightPool.push(l);
+}
+function updateMonsterLights(t){
+  if(!monLightPool.length)return;
+  // 가장 가까운 순으로 정렬해 앞쪽 N마리에만 광원을 붙인다
+  const cands=[];
+  for(const m of monsters){
+    const dx=m.wx-P.x,dz=m.wz-P.z;
+    cands.push({d2:dx*dx+dz*dz,m});
+  }
+  cands.sort((a,b)=>a.d2-b.d2);
+  for(let i=0;i<monLightPool.length;i++){
+    const l=monLightPool[i];
+    if(i<cands.length&&cands[i].d2<5.5*5.5){
+      const m=cands[i].m;
+      l.position.set(m.wx,1.3,m.wz);
+      l.intensity=m.state==='chase'?2.0+Math.sin(t*8)*.8:.7+Math.sin(t*2)*.3;
+    }else{
+      // 유효 반경 밖이면 세기만 0으로 (visible은 건드리지 않음 — 광원 개수 고정 유지)
+      l.position.set(0,-9999,0);
+      l.intensity=0;
+    }
+  }
+}
 
 // ── AUDIO (3D 공간 오디오) ──
 let actx=null, masterGain=null, audioReady=false;
@@ -675,7 +783,7 @@ function updateAudioListener(){
 function makePanner(x,y,z,refDist,maxDist,rolloff){
   const c=getAC();
   const p=c.createPanner();
-  p.panningModel='HRTF';        // 머리전달함수 — 방향감이 확연히 좋아짐
+  p.panningModel=Q.panning;     // HRTF=머리전달함수(방향감 우수) / LOW는 equalpower로 CPU 절감
   p.distanceModel='inverse';
   p.refDistance=refDist||1.8;
   p.maxDistance=maxDist||28;
@@ -820,7 +928,8 @@ function playEscape(){
 
 // ── FOG OF WAR ──
 let visited=[];
-function initVisited(){visited=Array.from({length:MH},()=>new Array(MW).fill(false));_lastVisGx=-999;_lastVisGz=-999;_lastVisYaw=999;_mmVisitedCount=-1;}
+let _visCount=0;   // 밝혀진 칸 수를 증분으로 유지 — drawMM에서 매번 625칸 세던 루프를 대체
+function initVisited(){visited=Array.from({length:MH},()=>new Array(MW).fill(false));_lastVisGx=-999;_lastVisGz=-999;_lastVisYaw=999;_visCount=0;_mmVisitedCount=-1;}
 const FOV_COS=Math.cos(60*Math.PI/180);
 let _lastVisGx=-999,_lastVisGz=-999,_lastVisYaw=999;
 function updateVisibility(){
@@ -830,7 +939,7 @@ function updateVisibility(){
   if(pgx===_lastVisGx&&pgz===_lastVisGz&&yawDelta<0.15) return;
   _lastVisGx=pgx;_lastVisGz=pgz;_lastVisYaw=P.yaw;
 
-  if(pgx>=0&&pgz>=0&&pgx<MW&&pgz<MH)visited[pgz][pgx]=true;
+  if(pgx>=0&&pgz>=0&&pgx<MW&&pgz<MH&&!visited[pgz][pgx]){visited[pgz][pgx]=true;_visCount++;}
   const fwdX=-Math.sin(P.yaw),fwdZ=-Math.cos(P.yaw);
   for(let dz=-2;dz<=2;dz++)for(let dx=-2;dx<=2;dx++){
     if(dx===0&&dz===0)continue;
@@ -839,7 +948,7 @@ function updateVisibility(){
     if((dx/len)*fwdX+(dz/len)*fwdZ<FOV_COS)continue;
     const gx=pgx+dx,gz=pgz+dz;
     if(gx<0||gz<0||gx>=MW||gz>=MH)continue;
-    if(!visited[gz][gx]&&hasLOS(pgx,pgz,gx,gz))visited[gz][gx]=true;
+    if(!visited[gz][gx]&&hasLOS(pgx,pgz,gx,gz)){visited[gz][gx]=true;_visCount++;}
   }
 }
 
@@ -853,10 +962,8 @@ let _mmVisitedCount=0;
 function redrawTerrainLayer(){
   mtCtx.clearRect(0,0,MM,MM);mtCtx.fillStyle='rgba(0,0,0,.92)';mtCtx.fillRect(0,0,MM,MM);
   const cw=MM/MW,ch=MM/MH;
-  let count=0;
   for(let r=0;r<MH;r++)for(let c=0;c<MW;c++){
     if(!visited[r][c])continue;
-    count++;
     mtCtx.fillStyle=mazeGrid[r][c]===1?'#c8854a':'#2a1e12';
     mtCtx.fillRect(c*cw,r*ch,cw,ch);
   }
@@ -864,14 +971,12 @@ function redrawTerrainLayer(){
     mtCtx.fillStyle='#0f8';mtCtx.shadowColor='#0f8';mtCtx.shadowBlur=5;
     mtCtx.fillRect(exitPos.x*cw+1,exitPos.z*ch+1,cw-2,ch-2);mtCtx.shadowBlur=0;
   }
-  _mmVisitedCount=count;
+  _mmVisitedCount=_visCount;
 }
 
 function drawMM(){
-  // 새로 밝혀진 칸이 생겼을 때만 지형 레이어 재생성
-  let curCount=0;
-  for(let r=0;r<MH;r++){const row=visited[r];for(let c=0;c<MW;c++)if(row[c])curCount++;}
-  if(curCount!==_mmVisitedCount) redrawTerrainLayer();
+  // 새로 밝혀진 칸이 생겼을 때만 지형 레이어 재생성 (_visCount는 updateVisibility가 증분 갱신)
+  if(_visCount!==_mmVisitedCount) redrawTerrainLayer();
 
   const cw=MM/MW,ch=MM/MH;
   mc.clearRect(0,0,MM,MM);
@@ -955,6 +1060,26 @@ function showScreen(id){
   document.querySelectorAll('.screen').forEach(s=>s.classList.add('hidden'));
   if(id)document.getElementById(id).classList.remove('hidden');
 }
+// ── 품질 프리셋 선택 UI (타이틀 화면 전용) ──
+// 광원 개수·텍스처·재질·antialias는 부팅 시점에 확정되므로 reload로만 적용한다.
+// 타이틀 화면에서는 잃을 진행 상황이 없고, SW 캐시 덕에 리로드가 즉시 끝난다.
+(function initQualityUI(){
+  const bar=document.getElementById('qbar');
+  for(const name of Object.keys(QUALITY_PRESETS)){
+    const b=document.createElement('button');
+    b.className='qbtn'+(name===QNAME?' on':'');
+    b.textContent=QUALITY_PRESETS[name].label;
+    b.addEventListener('click',()=>{
+      if(name===QNAME)return;
+      try{localStorage.setItem(QKEY,name);}catch(_){}
+      location.reload();
+    });
+    bar.appendChild(b);
+  }
+  document.getElementById('qnote').textContent=
+    '자동 감지 '+detectQuality()+' · 광원 '+(1+Q.torchLights+Q.monLights+1)+'개 · 변경 시 재시작';
+})();
+
 document.getElementById('startBtn').addEventListener('click',()=>{unlockAudio();showScreen(null);startLevel(1);});
 document.getElementById('nextBtn').addEventListener('click',()=>{unlockAudio();showScreen(null);startLevel(level+1);});
 document.getElementById('retryBtn').addEventListener('click',()=>{unlockAudio();showScreen(null);startLevel(level);});
@@ -965,6 +1090,7 @@ const pFps=document.getElementById('pFps'), pMs=document.getElementById('pMs');
 const pMin=document.getElementById('pMin'), pAvg=document.getElementById('pAvg');
 const pCalls=document.getElementById('pCalls'), pTris=document.getElementById('pTris');
 const pLights=document.getElementById('pLights'), pObjs=document.getElementById('pObjs');
+const pQual=document.getElementById('pQual'), pScale=document.getElementById('pScale');
 let perfOn=true;
 let _frames=0,_accum=0;                       // 표시 구간(1초) 집계
 let _minFps=Infinity;                          // 세션 최저 FPS (계속 유지)
@@ -974,6 +1100,9 @@ let _worstCalls=0;                             // 세션 최대 draw call
 function resetPerfStats(){
   _minFps=Infinity;_totFrames=0;_totTime=0;_worstCalls=0;
   _frames=0;_accum=0;
+  // 적응형이 이미 낮춰둔 해상도를 프리셋 기본값으로 되돌린다 — 프리셋별 실측 조건을 맞추기 위함
+  _lowSec=0;_hiSec=0;
+  if(renderScale!==Q.scale){renderScale=Q.scale;applyRenderScale();}
   pMin.textContent='--';pAvg.textContent='--';
   perfEl.style.borderColor='rgba(255,220,120,.9)';
   setTimeout(()=>perfEl.style.borderColor='',300);
@@ -1000,8 +1129,30 @@ perfToggleEl.addEventListener('click',()=>handlePerfTap());
 
 function cls(v,warn,bad){return v>=bad?'pv bad':v>=warn?'pv warn':'pv';}
 
+// ── 적응형 해상도 조절 ──
+// 조절 대상은 renderScale 하나뿐. 광원·재질·텍스처는 절대 건드리지 않는다
+// (개수가 바뀌면 셰이더가 재컴파일되어 플레이 중 hitching이 발생한다).
+// 하향은 빠르게(3초), 복구는 느리게(10초) — 경계에서 진동하는 것을 막기 위한 히스테리시스.
+const ADAPT_MIN=0.5;
+let _lowSec=0,_hiSec=0;
+function adaptQuality(fps){
+  if(!gameActive) return;                       // 타이틀·결과 화면에서는 조절하지 않음
+  const target=Q.targetFps;
+  if(fps<target){ _lowSec++; _hiSec=0; }
+  else if(fps>target*1.15){ _hiSec++; _lowSec=0; }
+  else { _lowSec=0; _hiSec=0; }
+
+  if(_lowSec>=3 && renderScale>ADAPT_MIN){
+    renderScale=Math.max(ADAPT_MIN,Math.round((renderScale-0.1)*100)/100);
+    applyRenderScale(); _lowSec=0;
+  }else if(_hiSec>=10 && renderScale<Q.scale){
+    renderScale=Math.min(Q.scale,Math.round((renderScale+0.05)*100)/100);
+    applyRenderScale(); _hiSec=0;
+  }
+}
+
 function updatePerf(rawDt){
-  if(!perfOn||rawDt<=0) return;
+  if(rawDt<=0) return;
 
   // 세션 누적 (표시 주기와 무관하게 항상 기록)
   _totFrames++; _totTime+=rawDt;
@@ -1010,7 +1161,7 @@ function updatePerf(rawDt){
   const info=renderer.info.render;
   if(info.calls>_worstCalls) _worstCalls=info.calls;
 
-  if(_accum<1.0) return;                        // 1초마다만 화면 갱신
+  if(_accum<1.0) return;                        // 1초마다만 집계
 
   const fps=_frames/_accum;
   const ms=(_accum/_frames)*1000;
@@ -1018,6 +1169,9 @@ function updatePerf(rawDt){
 
   // 로딩 직후 첫 구간은 튀므로 최저값 집계에서 제외
   if(_totTime>2.0 && fps<_minFps) _minFps=fps;
+
+  adaptQuality(fps);                            // 패널 표시 여부와 무관하게 동작해야 함
+  if(!perfOn) return;                           // 이하 DOM 갱신만 스킵
 
   let lightCount=0,objCount=0;
   scene.traverse(o=>{ if(o.isLight)lightCount++; if(o.isMesh)objCount++; });
@@ -1041,6 +1195,10 @@ function updatePerf(rawDt){
   pLights.className=cls(lightCount,9,16);
   pObjs.textContent=objCount;
   pObjs.className=cls(objCount,150,400);
+
+  pQual.textContent=QNAME;
+  pScale.textContent='×'+renderScale.toFixed(2);
+  pScale.className=renderScale<Q.scale?'pv warn':'pv';
 }
 
 // ── GAME LOOP ──
@@ -1086,7 +1244,7 @@ function animate(){
       // exit check
       if(Math.round(P.x/CELL)===exitPos.x&&Math.round(P.z/CELL)===exitPos.z){onEscape();return;}
       updateVisibility();
-      if((mmTick++%4)===0)drawMM();
+      if((mmTick++%Q.mmInterval)===0)drawMM();
       updateDanger();
 
       // ── 공간 오디오 ──
@@ -1110,8 +1268,9 @@ function animate(){
         }
       }
     }
-    // 횃불 광원 재배치 (가장 가까운 N개만 실제 광원으로 사용)
+    // 광원 재배치 (가장 가까운 N개만 실제 광원으로 사용)
     updateTorchLights(dt,t);
+    updateMonsterLights(t);
     // 활성화된 풀 광원만 깜빡임 적용 (최대 MAX_TORCH_LIGHTS개)
     for(const l of torchLightPool){
       if(!l.userData.on){continue;}
