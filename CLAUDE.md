@@ -188,6 +188,9 @@ FPS 계측에는 클램프 전 `rawDt`를 사용합니다(클램프된 `dt`는 �
 | `aniso` (0=최대) | 1 | 1 | 4 | 0 |
 | `aa` | ✗ | ✗ | ✓ | ✓ |
 | `matType` | phong | phong | standard | standard |
+| `ambient` | 3.6 | 3.4 | 3.2 | 3.2 |
+| `torchRange` | 8.5 | 7.8 | 7.0 | 7.0 |
+| `torchPower` | 1.10 | 1.05 | 1.00 | 1.00 |
 | `torchInterval` | 0.20s | 0.15s | 0.12s | 0.10s |
 | `mmInterval` | 8f | 6f | 4f | 4f |
 | `panning` | equalpower | HRTF | HRTF | HRTF |
@@ -228,11 +231,35 @@ r128의 `MeshLambertMaterial`은 **정점 단위(Gouraud) 조명**입니다.
 바닥 타일 좌표(256까지 채움)가 캔버스 밖으로 넘어가 타일링 이음새에 빈 영역이 드러납니다.
 텍스처에 무언가 추가할 때 이 규칙을 지키십시오. 마무리는 `finishTex()`가 담당합니다(wrap + anisotropy).
 
+### 밝기 보정 — 광원을 늘리지 않고 어두움을 해결하는 축
+
+광원이 적은 프리셋은 횃불 사이 구간이 캄캄해집니다. 이때 `torchLights`를 늘리면
+1번 규칙에 정면으로 위배되므로, 대신 아래 세 값을 씁니다. **셋 다 픽셀당 광원 순회
+횟수를 바꾸지 않아 사실상 공짜입니다.**
+
+| 값 | 성격 | 분위기 영향 |
+|---|---|---|
+| `torchRange` | `PointLight.distance` — 빛이 닿는 범위 | 가장 안전. 횃불 빛웅덩이가 넓어질 뿐 |
+| `torchPower` | 깜빡임 세기 배수 | 안전. 대비가 오히려 살아남 |
+| `ambient` | `AmbientLight` 세기 | **가장 위험.** 전체가 평평해져 호러 느낌이 죽음 |
+
+조정할 때는 `ambient`를 마지막에, 가장 적게 건드리십시오.
+과거에 `ambient 4.6 / torchRange 10 / torchPower 1.3`을 한꺼번에 넣었더니 배수가
+곱해져 화면 평균 밝기가 34 → 69로 **2배**가 되어 분위기가 통째로 날아갔습니다.
+현재 값은 34 → 46(+34%)입니다.
+
 ### 자동 감지
 
 `detectQuality()` — `localStorage`에 저장값이 없을 때만 동작합니다.
-모바일은 `hardwareConcurrency ≤ 4 || deviceMemory ≤ 3`이면 LOW, 아니면 MEDIUM.
-데스크톱은 같은 조건에서 MEDIUM, 아니면 HIGH.
+모바일은 `hardwareConcurrency ≤ 2 || deviceMemory ≤ 2`이면 LOW, 아니면 MEDIUM.
+데스크톱은 `≤ 4`이면 MEDIUM, 아니면 HIGH.
+
+**⚠️ 모바일 임계값을 다시 올리지 마십시오.**
+iOS Safari는 `deviceMemory`를 **아예 노출하지 않고**(`undefined`),
+`hardwareConcurrency`도 대부분 **4로 보고**합니다. 처음에 모바일 LOW 조건을
+`cores ≤ 4`로 뒀더니 최신 아이폰까지 전부 LOW로 떨어져 "너무 어둡다"는 문제가
+발생했습니다. `deviceMemory`는 `undefined`와 실제 저사양을 구분해야 하므로
+`||` 기본값으로 숫자를 채우지 말고 `mem !== undefined` 검사를 유지하십시오.
 
 ### 검증 방법
 
