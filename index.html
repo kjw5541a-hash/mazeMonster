@@ -360,9 +360,99 @@ function makeDungeonCeil(size){
   return finishTex(new THREE.CanvasTexture(c),0);
 }
 
+// 몬스터 — 붕대 감긴 야윈 인간형. 알파를 가진 세로로 긴 텍스처.
+// 설계 좌표계는 128×256 고정이고 s=size/256을 곱해 실제 캔버스에 옮긴다(던전 텍스처와 동일 규칙).
+// 실루엣을 먼저 채운 뒤 globalCompositeOperation='source-atop'으로 전환하면
+// 이후의 붕대·얼룩·음영이 실루엣 안쪽에만 그려져 윤곽이 번지지 않는다.
+function makeMonsterTex(size){
+  const s=size/256;
+  const c=document.createElement('canvas');c.width=128*s;c.height=256*s;
+  const ctx=c.getContext('2d');
+  const X=v=>v*s,Y=v=>v*s;
+
+  // 사지 — 시작/끝 반폭을 따로 줘서 끝으로 갈수록 가늘어지게
+  function limb(x1,y1,x2,y2,w1,w2){
+    const a=Math.atan2(y2-y1,x2-x1),px=Math.sin(a),py=-Math.cos(a);
+    ctx.beginPath();
+    ctx.moveTo(X(x1+px*w1),Y(y1+py*w1));
+    ctx.lineTo(X(x2+px*w2),Y(y2+py*w2));
+    ctx.lineTo(X(x2-px*w2),Y(y2-py*w2));
+    ctx.lineTo(X(x1-px*w1),Y(y1-py*w1));
+    ctx.closePath();ctx.fill();
+  }
+
+  // ── 1) 실루엣 ──
+  // 좌우 비대칭 + 앞으로 굽은 자세. 반듯하게 세우면 미라 졸라맨처럼 보여 전혀 무섭지 않다.
+  const base=ctx.createLinearGradient(0,0,0,Y(256));
+  base.addColorStop(0,'#a49d8d');base.addColorStop(.55,'#7d7869');base.addColorStop(1,'#464339');
+  ctx.fillStyle=base;
+
+  limb(59,192,53,250,6.5,4.5);  // 다리 — 살짝 벌어지게
+  limb(71,192,79,250,6.5,4.5);
+  limb(47,74,31,198,6.5,3.2);   // 팔 — 무릎 아래까지. 좌우 길이를 달리해 비대칭을 만든다
+  limb(83,78,99,188,6.5,3.2);
+  ctx.beginPath();              // 몸통 — 어깨 넓고 허리 잘록한 야윈 체형, 왼쪽 어깨가 더 높음
+  ctx.moveTo(X(46),Y(68));ctx.lineTo(X(84),Y(72));
+  ctx.lineTo(X(73),Y(146));ctx.lineTo(X(76),Y(198));
+  ctx.lineTo(X(54),Y(198));ctx.lineTo(X(57),Y(146));
+  ctx.closePath();ctx.fill();
+  ctx.beginPath();              // 목 — 앞으로 기울어 머리가 어깨보다 앞에 나온다
+  ctx.moveTo(X(58),Y(52));ctx.lineTo(X(68),Y(54));ctx.lineTo(X(71),Y(74));ctx.lineTo(X(55),Y(72));
+  ctx.closePath();ctx.fill();
+  ctx.beginPath();ctx.ellipse(X(61),Y(36),X(14),Y(17.5),0.24,0,Math.PI*2);ctx.fill(); // 머리 — 기울인 달걀형
+
+  // ── 2) 이후 디테일은 실루엣 안쪽에만 ──
+  ctx.globalCompositeOperation='source-atop';
+
+  // 붕대 — 비스듬한 밝은 띠
+  for(let i=0;i<26;i++){
+    const y=8+Math.random()*240,tilt=(Math.random()-.5)*14;
+    ctx.strokeStyle=`rgba(224,218,200,${.10+Math.random()*.20})`;
+    ctx.lineWidth=(2.5+Math.random()*4)*s;
+    ctx.beginPath();ctx.moveTo(X(20),Y(y));ctx.lineTo(X(108),Y(y+tilt));ctx.stroke();
+  }
+  // 얼룩 — 아래로 갈수록 짙게
+  for(let i=0;i<34;i++){
+    const x=Math.random()*128,y=Math.random()*256,r=(4+Math.random()*13)*s;
+    const gr=ctx.createRadialGradient(X(x),Y(y),0,X(x),Y(y),r);
+    gr.addColorStop(0,`rgba(38,26,20,${.20+ (y/256)*.35})`);gr.addColorStop(1,'transparent');
+    ctx.fillStyle=gr;ctx.beginPath();ctx.arc(X(x),Y(y),r,0,Math.PI*2);ctx.fill();
+  }
+  // 팔이 몸통에 묻히지 않도록 겨드랑이~옆구리에 어두운 이음새를 넣는다
+  ctx.strokeStyle='rgba(18,14,12,0.55)';ctx.lineWidth=2.6*s;ctx.lineCap='round';
+  ctx.beginPath();ctx.moveTo(X(48),Y(76));ctx.lineTo(X(40),Y(192));ctx.stroke();
+  ctx.beginPath();ctx.moveTo(X(82),Y(80));ctx.lineTo(X(90),Y(184));ctx.stroke();
+  // 갈비뼈 — 마른 몸을 강조
+  ctx.strokeStyle='rgba(22,18,16,0.30)';ctx.lineWidth=1.8*s;
+  for(let i=0;i<5;i++){
+    const y=92+i*11;
+    ctx.beginPath();ctx.moveTo(X(58),Y(y));ctx.quadraticCurveTo(X(65),Y(y+4),X(74),Y(y-1));ctx.stroke();
+  }
+  // 얼굴 자리 — 이목구비 없이 움푹 팬 그림자만 (빛나는 눈은 별도 3D 메시)
+  const fg=ctx.createRadialGradient(X(61),Y(38),0,X(61),Y(38),X(13));
+  fg.addColorStop(0,'rgba(8,6,8,0.86)');fg.addColorStop(1,'transparent');
+  ctx.fillStyle=fg;ctx.beginPath();ctx.arc(X(61),Y(38),X(13),0,Math.PI*2);ctx.fill();
+  // 좌우 가장자리를 어둡게 — 평면이지만 원통형 입체감이 나도록.
+  // 캔버스 전체가 아니라 몸이 실제로 차지하는 x 28~100 구간을 기준으로 삼아야 몸에 걸린다.
+  const sh=ctx.createLinearGradient(X(28),0,X(100),0);
+  sh.addColorStop(0,'rgba(0,0,0,0.62)');sh.addColorStop(.38,'rgba(0,0,0,0)');
+  sh.addColorStop(.68,'rgba(0,0,0,0.16)');sh.addColorStop(1,'rgba(0,0,0,0.66)');
+  ctx.fillStyle=sh;ctx.fillRect(0,0,c.width,c.height);
+  // 발밑을 어둡게 깔아 바닥에서 솟아오른 느낌
+  const ft=ctx.createLinearGradient(0,Y(214),0,Y(256));
+  ft.addColorStop(0,'rgba(0,0,0,0)');ft.addColorStop(1,'rgba(0,0,0,0.55)');
+  ctx.fillStyle=ft;ctx.fillRect(0,Y(214),c.width,Y(42));
+
+  ctx.globalCompositeOperation='source-over';
+  const t=new THREE.CanvasTexture(c);
+  t.anisotropy=Q.aniso===0?MAX_ANISO:Math.min(Q.aniso,MAX_ANISO);
+  return t;   // wrap 불필요 — 타일링하지 않는다
+}
+
 const wallMap =makeDungeonWall(Q.texSize);
 const floorMap=makeDungeonFloor(Q.texSize);
 const ceilMap =makeDungeonCeil(Q.texSize);
+const monMap  =makeMonsterTex(Q.texSize);
 
 // 재질 팩토리 — LOW/MEDIUM은 MeshPhongMaterial로 대체한다.
 // MeshLambertMaterial을 쓰지 않는 이유: r128의 Lambert는 정점 단위(Gouraud) 조명이라
@@ -386,8 +476,18 @@ const mCeil  =mkMat({map:ceilMap, color:0x333844,roughness:.97,metalness:.02,emi
 const mFlame  =mkMat({color:0xff8800,emissive:0xff6600,emissiveIntensity:3.5,transparent:true,opacity:.92});
 const mBrack  =mkMat({color:0x3a3a3a,roughness:.6,metalness:.7}); // 철 브래킷
 const mExit   =mkMat({color:0x00ff88,emissive:0x00ff88,emissiveIntensity:1.6,transparent:true,opacity:.88});
-const mMonBody=mkMat({color:0x220000,roughness:.7,emissive:0x550000,emissiveIntensity:.5});
+// 몬스터 몸체 — 빌보드 평면. SpriteMaterial을 쓰지 않는 이유는 r128의 Sprite가
+// 광원의 영향을 받지 않아 어두운 복도에 혼자 환하게 떠 보이기 때문이다.
+// 투명은 transparent 대신 alphaTest로 처리해 불투명 패스에 남기고 정렬 문제를 피한다.
+const mMonBody=mkMat({map:monMap,color:0x9a9384,roughness:.92,emissive:0x120a08,emissiveIntensity:.30,side:THREE.DoubleSide});
+mMonBody.alphaTest=0.5;
 const mMonEye =mkMat({color:0xff0000,emissive:0xff0000,emissiveIntensity:3.0});
+
+// 빌보드 평면 크기와, 텍스처 설계 좌표(128×256)의 머리 중심(61,36)을 평면 로컬 좌표로 환산한 값.
+// 눈 위치를 여기서 유도해야 텍스처를 손볼 때 눈이 따로 놀지 않는다.
+const MON_W=0.95, MON_H=1.9, MON_Y=0.85;
+const MON_HEAD_X=(61/128-0.5)*MON_W;          // ≈ -0.02
+const MON_HEAD_Y=MON_Y+MON_H*(0.5-36/256);    // ≈ 1.53
 
 // ── PLAYER ──
 const P={x:CELL,z:CELL,yaw:0,targetYaw:0,vx:0,vz:0,spd:0};
@@ -600,16 +700,17 @@ class Monster{
     this.state='patrol';this.path=null;this.patrolTarget=null;
     this.searchPos=null;this.searchTimer=0;this.alertTimer=0;
 
-    // mesh
-    const body=new THREE.Mesh(new THREE.CylinderGeometry(.28,.35,1.5,10),mMonBody.clone());
-    const head=new THREE.Mesh(new THREE.SphereGeometry(.3,10,8),mMonBody.clone());
-    head.position.y=.95;
-    const eyeL=new THREE.Mesh(new THREE.SphereGeometry(.07,6,6),mMonEye.clone());
-    eyeL.position.set(-.12,.95,.26);
-    const eyeR=new THREE.Mesh(new THREE.SphereGeometry(.07,6,6),mMonEye.clone());
-    eyeR.position.set(.12,.95,.26);
+    // mesh — 몸체는 카메라를 향해 도는 평면 1장(텍스처 비율 128:256에 맞춘 0.95×1.9),
+    // 눈만 실제 발광 구체로 남겨 상태별 밝기 연출을 유지한다.
+    const body=new THREE.Mesh(new THREE.PlaneGeometry(MON_W,MON_H),mMonBody);
+    body.position.y=MON_Y;
+    const eyeL=new THREE.Mesh(new THREE.SphereGeometry(.026,6,6),mMonEye.clone());
+    eyeL.position.set(MON_HEAD_X-.040,MON_HEAD_Y,.05);
+    const eyeR=new THREE.Mesh(new THREE.SphereGeometry(.026,6,6),mMonEye.clone());
+    eyeR.position.set(MON_HEAD_X+.040,MON_HEAD_Y,.05);
+    this.eyes=[eyeL,eyeR];      // children 인덱스 대신 직접 참조 — 메시 구성이 바뀌어도 안전
     this.group=new THREE.Group();
-    this.group.add(body,head,eyeL,eyeR);
+    this.group.add(body,eyeL,eyeR);
     this.group.position.set(this.wx,.1,this.wz);
     scene.add(this.group);worldObjs.push(this.group);
     // 눈 광원은 몬스터마다 만들지 않는다 — monLightPool이 최근접 N마리에만 배치 (아래 참조)
@@ -687,7 +788,6 @@ class Monster{
         if(dist<0.1){this.wx=twx;this.wz=twz;this.gx=tgx;this.gz=tgz;this.path=null;this.alertTimer=0;}
         else{
           this.wx+=dx/dist*spd*dt;this.wz+=dz/dist*spd*dt;
-          this.group.rotation.y=Math.atan2(dx,dz);
           // 3D 발소리 — 이동 속도에 비례한 주기로 자기 위치에서 발생
           this.stepPhase += dt * spd * 1.5;
           if(this.stepPhase >= Math.PI){
@@ -704,9 +804,11 @@ class Monster{
       if(!Number.isFinite(this.wx)||!Number.isFinite(this.wz)){this.wx=CELL;this.wz=CELL;this.gx=1;this.gz=1;}
     }
     this.group.position.set(this.wx,.1,this.wz);
+    // 빌보드 — 평면이 항상 플레이어를 향하게. +z가 정면이므로 눈도 같이 앞을 유지한다
+    this.group.rotation.y=Math.atan2(P.x-this.wx,P.z-this.wz);
     const ei=this.state==='chase'?3+Math.sin(t*8):1.5;
-    this.group.children[2].material.emissiveIntensity=ei;
-    this.group.children[3].material.emissiveIntensity=ei;
+    this.eyes[0].material.emissiveIntensity=ei;
+    this.eyes[1].material.emissiveIntensity=ei;
   }
   distToPlayer(){const dx=this.wx-P.x,dz=this.wz-P.z;return Math.sqrt(dx*dx+dz*dz);}
   remove(){scene.remove(this.group);}

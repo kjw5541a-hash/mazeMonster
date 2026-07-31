@@ -194,6 +194,22 @@ Recursive Backtracking으로 완전 미로 생성 후, **내부 벽의 18%를 �
 
 레벨당 마리 수 `min(level, 3)`, 레벨마다 속도 +12%. 접촉 시 즉사(`MON_KILL_R = 0.7`).
 
+### 몬스터 외형 — 빌보드 평면 + 발광 눈
+
+몸체는 `makeMonsterTex()`가 캔버스로 그린 텍스처를 입힌 **평면 1장**이고,
+매 프레임 `rotation.y`를 플레이어 쪽으로 돌려 빌보드로 씁니다(`+z`가 정면).
+
+**`THREE.Sprite`를 쓰지 마십시오.** r128의 `SpriteMaterial`은 광원의 영향을 받지 않아
+어두운 복도에 몬스터만 환하게 떠 보입니다. 반드시 `PlaneGeometry` + `mkMat()` 조합을 쓰십시오.
+투명은 `transparent` 대신 **`alphaTest`**로 처리합니다(불투명 패스에 남아 정렬 문제가 없음).
+
+눈만 실제 `SphereGeometry` 메시로 남겼습니다. 상태별 밝기 연출(`chase`일 때 번쩍임)을
+유지하기 위해서이고, `this.eyes[]`로 직접 참조합니다 — `group.children[i]` 인덱스로 접근하면
+메시 구성이 바뀔 때 조용히 깨집니다.
+
+눈 좌표는 `MON_HEAD_X` / `MON_HEAD_Y` 상수로 **텍스처 설계 좌표(128×256)에서 유도**합니다.
+텍스처의 머리 위치를 옮기면 이 상수도 같이 고쳐야 눈이 따로 놀지 않습니다.
+
 **과거 크래시 이력**: `searchPos`가 `null`인 채 `search` 상태에 진입해
 `this.searchPos[0]` 접근에서 `TypeError` 발생. 현재는 `chase` 진입/유지 중
 매 프레임 `searchPos`를 갱신하고, `search` 로직에서도 `null` 검사 후 `patrol` 복귀하도록 이중 방어됨.
