@@ -789,25 +789,50 @@ class Monster{
     this.chargeT-=dt;
     const charge=this.chargeT>0?CHARGE_BOOST:1;
     const spd=this.state==='chase'?this.spd*(1+0.05*lv)*charge:this.spd*0.55;
-    if(this.path){
+    // 이동 목표를 먼저 정한다.
+    //
+    // ★ 최종 접근 — BFS는 칸 중심에서 칸 중심으로만 이동하고, 플레이어가 있는 칸에
+    //   도착하면 bfsNext()가 (시작==목표) null을 반환해 몬스터가 거기서 멈춘다.
+    //   그런데 플레이어는 칸 안 아무 데나 설 수 있어(벽 충돌 여유 때문에 칸 중심에서
+    //   최대 0.96칸) 즉사 판정 0.7에 닿지 않는 사각이 생긴다. 실제로 눈앞에 두고도
+    //   죽지 않는 버그가 여기서 나왔다.
+    //   그래서 가까이 붙고 시야가 통하면 격자를 버리고 플레이어의 실제 좌표로 향한다.
+    let tx=null,tz=null,onGrid=false;
+    const apx=P.x-this.wx, apz=P.z-this.wz;
+    const dPlayer=Math.sqrt(apx*apx+apz*apz);
+    if(this.state==='chase'&&sees&&dPlayer<CELL*1.2){
+      tx=P.x; tz=P.z;
+    }else if(this.path){
       const[tgx,tgz]=this.path;
       // NaN/유효하지 않은 좌표 방어 — bfsNext 실패 시 path를 즉시 폐기
       if(!Number.isFinite(tgx)||!Number.isFinite(tgz)||tgx<0||tgz<0||tgx>=MW||tgz>=MH){
         this.path=null;
       } else {
-        const twx=tgx*CELL,twz=tgz*CELL;
-        const dx=twx-this.wx,dz=twz-this.wz,dist=Math.sqrt(dx*dx+dz*dz);
-        if(dist<0.1){this.wx=twx;this.wz=twz;this.gx=tgx;this.gz=tgz;this.path=null;this.alertTimer=0;}
-        else{
-          this.wx+=dx/dist*spd*dt;this.wz+=dz/dist*spd*dt;
-          this.facing=Math.atan2(dx,dz);   // 진행 방향 — 실제 회전은 아래에서 부드럽게 따라간다
-          // 3D 발소리 — 이동 속도에 비례한 주기로 자기 위치에서 발생
-          this.stepPhase += dt * spd * 1.5;
-          if(this.stepPhase >= Math.PI){
-            this.stepPhase -= Math.PI;
-            const ddx=this.wx-P.x, ddz=this.wz-P.z;
-            if(ddx*ddx+ddz*ddz < 30*30) monsterStep(this.wx,this.wz);
-          }
+        tx=tgx*CELL; tz=tgz*CELL; onGrid=true;
+      }
+    }
+
+    if(tx!==null){
+      const dx=tx-this.wx,dz=tz-this.wz,dist=Math.sqrt(dx*dx+dz*dz);
+      if(onGrid&&dist<0.1){
+        this.wx=tx;this.wz=tz;this.gx=Math.round(tx/CELL);this.gz=Math.round(tz/CELL);
+        this.path=null;this.alertTimer=0;
+      }else if(dist>1e-4){
+        this.wx+=dx/dist*spd*dt;this.wz+=dz/dist*spd*dt;
+        this.facing=Math.atan2(dx,dz);   // 진행 방향 — 실제 회전은 아래에서 부드럽게 따라간다
+        if(!onGrid){
+          // 직접 접근 중에도 격자 좌표를 따라 갱신해 둬야, 시야를 잃었을 때 BFS가 이어진다.
+          // 벽 칸으로는 절대 옮기지 않는다 — bfsNext가 벽에서 출발하면 경로를 못 찾는다.
+          const ngx=Math.round(this.wx/CELL), ngz=Math.round(this.wz/CELL);
+          if(mazeGrid[ngz]&&mazeGrid[ngz][ngx]===1){this.gx=ngx;this.gz=ngz;}
+          this.path=null;
+        }
+        // 3D 발소리 — 이동 속도에 비례한 주기로 자기 위치에서 발생
+        this.stepPhase += dt * spd * 1.5;
+        if(this.stepPhase >= Math.PI){
+          this.stepPhase -= Math.PI;
+          const ddx=this.wx-P.x, ddz=this.wz-P.z;
+          if(ddx*ddx+ddz*ddz < 30*30) monsterStep(this.wx,this.wz);
         }
       }
     }
