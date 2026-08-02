@@ -145,7 +145,12 @@ window.addEventListener('unhandledrejection', function(e){
 import * as THREE from 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.module.js';
 
 // ── CONSTANTS ──
-const CELL=2.0,WALL_H=2.6,MW=25,MH=25;
+const CELL=2.0,WALL_H=2.6;
+// 미로 크기는 레벨마다 커진다. 재귀 백트래킹은 홀수 크기를 전제하므로 증가폭도 짝수여야 한다
+// (25 → 29 → 33 → 37 → 41). MW/MH가 상수가 아니게 되었으므로 배열은 최대 크기로 잡는다.
+const MAZE_MIN=25,MAZE_MAX=41,MAZE_STEP=4;
+let MW=MAZE_MIN,MH=MAZE_MIN;
+const mazeSizeFor=lv=>Math.min(MAZE_MAX,MAZE_MIN+(lv-1)*MAZE_STEP);
 const PLAYER_R=0.32,PLAYER_SPD=4.5,TURN_SPD=2.6,ACCEL=16,FRIC=11;
 const MON_COUNT=lv=>Math.min(lv,3);
 const MON_BASE_SPD=2.2,MON_SPD_INC=0.12;
@@ -209,7 +214,7 @@ function generateMaze(W,H){
       if(ny>=0&&ny<H&&nx>=0&&nx<W&&g[ny][nx]===0){g[y+dy/2][x+dx/2]=1;carve(nx,ny);}
     }
   }
-  carve(1,1); g[H-2][W-2]=1;
+  carve(1,1);   // (1,1)에서 시작하면 홀수 좌표 칸이 모두 뚫린다
   // Add loops: remove 18% of interior walls that border 2+ paths
   const walls=[];
   for(let r=1;r<H-1;r++)for(let c=1;c<W-1;c++)if(g[r][c]===0)walls.push([c,r]);
@@ -542,17 +547,65 @@ function updateTorchLights(dt,t){
   }
 }
 
-function placeTorch(wx,wz,fdx,fdz){
+// ── 지오메트리 병합 ──
+// 칸마다 Mesh를 하나씩 만들면 41×41에서 씬 객체가 3,000개를 넘는다. DRAW·TRIS는 컬링 덕에
+// 그대로인데도 FPS가 59 → 40으로 떨어졌다. 매 프레임 모든 객체의 행렬 갱신과 절두체 컬링을
+// 도는 CPU 비용이 원인이다. 정적인 벽·바닥·천장을 재질별로 하나의 지오메트리에 합쳐 없앤다.
+//
+// r128의 BufferGeometryUtils는 examples/ 쪽에 있어 코어 모듈에 없다. CDN 의존을 하나 더
+// 늘리지 않으려고 직접 합친다. position/normal/uv 를 가진 인덱스 지오메트리면 종류가 달라도 된다.
+const _mgV=new THREE.Vector3(),_mgN=new THREE.Vector3(),_mgNM=new THREE.Matrix3();
+function mergeParts(parts){
+  let vTot=0,iTot=0;
+  for(const p of parts){vTot+=p.geo.attributes.position.count;iTot+=p.geo.index.count;}
+  const P=new Float32Array(vTot*3),N=new Float32Array(vTot*3),U=new Float32Array(vTot*2);
+  const I=vTot>65535?new Uint32Array(iTot):new Uint16Array(iTot);
+  let vo=0,io=0;
+  for(const p of parts){
+    const pos=p.geo.attributes.position,nor=p.geo.attributes.normal,uv=p.geo.attributes.uv,idx=p.geo.index;
+    _mgNM.getNormalMatrix(p.m);
+    for(let i=0;i<pos.count;i++){
+      _mgV.fromBufferAttribute(pos,i).applyMatrix4(p.m);
+      P[(vo+i)*3]=_mgV.x;P[(vo+i)*3+1]=_mgV.y;P[(vo+i)*3+2]=_mgV.z;
+      _mgN.fromBufferAttribute(nor,i).applyMatrix3(_mgNM).normalize();
+      N[(vo+i)*3]=_mgN.x;N[(vo+i)*3+1]=_mgN.y;N[(vo+i)*3+2]=_mgN.z;
+      U[(vo+i)*2]=uv.getX(i);U[(vo+i)*2+1]=uv.getY(i);
+    }
+    for(let i=0;i<idx.count;i++) I[io+i]=idx.getX(i)+vo;
+    vo+=pos.count;io+=idx.count;
+  }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.BufferAttribute(P,3));
+  g.setAttribute('normal',new THREE.BufferAttribute(N,3));
+  g.setAttribute('uv',new THREE.BufferAttribute(U,2));
+  g.setIndex(new THREE.BufferAttribute(I,1));
+  g.computeBoundingSphere();
+  return g;
+}
+
+// 병합 대상은 Mesh를 만들지 않고 {geo, 행렬} 목록으로만 모은다
+const _mgMat=new THREE.Matrix4(),_mgQ=new THREE.Quaternion(),_mgS=new THREE.Vector3(1,1,1),_mgE=new THREE.Euler();
+function part(list,geo,x,y,z,rx,rz){
+  _mgE.set(rx||0,0,rz||0);
+  _mgQ.setFromEuler(_mgE);
+  _mgMat.compose(_mgV.set(x,y,z),_mgQ,_mgS);
+  list.push({geo,m:_mgMat.clone()});
+}
+
+const gTorchBox=new THREE.BoxGeometry(.08,.26,.08);
+const gTorchRod=new THREE.CylinderGeometry(.04,.04,.32,8);
+const gTorchGlow=new THREE.SphereGeometry(.055,6,6);
+const gFlame=new THREE.ConeGeometry(.1,.26,8);
+const mTorchGlow=mkMat({color:0xffee88,emissive:0xffdd44,emissiveIntensity:4,transparent:true,opacity:.8});
+
+function placeTorch(wx,wz,fdx,fdz,brack,glow){
   const bx=wx+fdx*(CELL/2-.05),bz=wz+fdz*(CELL/2-.05);
-  addO(new THREE.Mesh(new THREE.BoxGeometry(.08,.26,.08),mBrack)).position.set(bx,1.55,bz);
-  const st=addO(new THREE.Mesh(new THREE.CylinderGeometry(.04,.04,.32,8),mBrack));
-  st.rotation.x=fdz!==0?Math.PI/2.1:0;st.rotation.z=fdx!==0?Math.PI/2.1:0;
-  st.position.set(bx+fdx*.1,1.7,bz+fdz*.1);
-  const fl=addO(new THREE.Mesh(new THREE.ConeGeometry(.1,.26,8),mFlame));
+  part(brack,gTorchBox,bx,1.55,bz);
+  part(brack,gTorchRod,bx+fdx*.1,1.7,bz+fdz*.1, fdz!==0?Math.PI/2.1:0, fdx!==0?Math.PI/2.1:0);
+  // 불꽃만 개별 Mesh로 남긴다 — 매 프레임 scale이 흔들려 병합할 수 없다
+  const fl=addO(new THREE.Mesh(gFlame,mFlame));
   fl.position.set(bx+fdx*.1,1.92,bz+fdz*.1);torchFlames.push(fl);
-  addO(new THREE.Mesh(new THREE.SphereGeometry(.055,6,6),
-    mkMat({color:0xffee88,emissive:0xffdd44,emissiveIntensity:4,transparent:true,opacity:.8})
-  )).position.copy(fl.position);
+  part(glow,gTorchGlow,fl.position.x,fl.position.y,fl.position.z);
   // 실제 PointLight를 만들지 않고 위치 데이터만 등록
   torchData.push({x:bx+fdx*.1, y:1.98, z:bz+fdz*.1, phase:Math.random()*Math.PI*2});
 }
@@ -561,21 +614,30 @@ function buildWorld(){
   worldObjs.forEach(o=>scene.remove(o));worldObjs.length=0;torchFlames.length=0;torchData.length=0;
   const gW=new THREE.BoxGeometry(CELL,WALL_H,CELL);
   const gF=new THREE.BoxGeometry(CELL,.1,CELL);
-  const gC=new THREE.BoxGeometry(CELL,.1,CELL);
   const FACES=[[1,0],[-1,0],[0,1],[0,-1]];
+  // 전부를 한 덩어리로 합치면 절두체 컬링이 통째로 무력화되어 미로 전체가 매 프레임
+  // 그려진다(실측: TRIS 0.1k → 17.9k). CHUNK칸 단위로 나눠 합쳐야 객체 수도 줄고
+  // 컬링도 그대로 살아난다.
+  const CHUNK=6, cxN=Math.ceil(MW/CHUNK), czN=Math.ceil(MH/CHUNK);
+  const mk=()=>Array.from({length:cxN*czN},()=>[]);
+  const walls=mk(),floors=mk(),ceils=mk(),brack=mk(),glow=mk();
   for(let row=0;row<MH;row++)for(let col=0;col<MW;col++){
     const wx=col*CELL,wz=row*CELL,h=col*31+row*17;
+    const ci=((row/CHUNK)|0)*cxN+((col/CHUNK)|0);
     if(mazeGrid[row][col]===0){
-      addO(new THREE.Mesh(gW,mWall)).position.set(wx,WALL_H/2,wz);
+      part(walls[ci],gW,wx,WALL_H/2,wz);
       if(h%5===0)for(const[fdx,fdz]of FACES){
         const nx=col+fdx,nz=row+fdz;
-        if(nx>=0&&nz>=0&&nx<MW&&nz<MH&&mazeGrid[nz][nx]===1){placeTorch(wx,wz,fdx,fdz);break;}
+        if(nx>=0&&nz>=0&&nx<MW&&nz<MH&&mazeGrid[nz][nx]===1){placeTorch(wx,wz,fdx,fdz,brack[ci],glow[ci]);break;}
       }
     }else{
-      addO(new THREE.Mesh(gF,mFloor)).position.set(wx,-.05,wz);
-      addO(new THREE.Mesh(gC,mCeil)).position.set(wx,WALL_H+.05,wz);
+      part(floors[ci],gF,wx,-.05,wz);
+      part(ceils[ci],gF,wx,WALL_H+.05,wz);
     }
   }
+  for(const[lists,mat] of [[walls,mWall],[floors,mFloor],[ceils,mCeil],[brack,mBrack],[glow,mTorchGlow]])
+    for(const list of lists)
+      if(list.length) addO(new THREE.Mesh(mergeParts(list),mat));
   const ep=addO(new THREE.Mesh(new THREE.BoxGeometry(1.1,1.9,.12),mExit));
   ep.position.set(exitPos.x*CELL,WALL_H/2-.3,exitPos.z*CELL);ep.userData.isPortal=true;
   cachedPortal=ep;
@@ -598,10 +660,33 @@ function blocked(nx,nz){
 
 // ── BFS ──
 // BFS용 버퍼를 전역에서 1회만 할당하고 재사용 — 매 호출마다 GC 압박 유발하던 재할당 제거
-const _bfsVis=new Uint8Array(MW*MH);
-const _bfsPar=new Int16Array(MW*MH);
-const _bfsQx=new Int16Array(MW*MH); // 큐를 배열 push/shift 대신 순환 버퍼로 처리 (shift()의 O(n) 비용 제거)
-const _bfsQz=new Int16Array(MW*MH);
+const _bfsVis=new Uint8Array(MAZE_MAX*MAZE_MAX);
+const _bfsPar=new Int16Array(MAZE_MAX*MAZE_MAX);
+const _bfsQx=new Int16Array(MAZE_MAX*MAZE_MAX); // 큐를 배열 push/shift 대신 순환 버퍼로 처리 (shift()의 O(n) 비용 제거)
+const _bfsQz=new Int16Array(MAZE_MAX*MAZE_MAX);
+const _bfsDist=new Int16Array(MAZE_MAX*MAZE_MAX);
+
+// 시작 칸에서 모든 길 칸까지의 실제 이동 거리(칸 수). 시작·출구·몬스터 배치에 쓴다.
+// 직선거리로 재면 벽 때문에 실제로는 코앞인 지점이 멀어 보인다.
+function bfsDistances(sx,sz){
+  _bfsDist.fill(-1);
+  const idx=(x,z)=>z*MW+x;
+  let qHead=0,qTail=0;
+  _bfsQx[qTail]=sx;_bfsQz[qTail]=sz;qTail++;
+  _bfsDist[idx(sx,sz)]=0;
+  while(qHead<qTail){
+    const cx=_bfsQx[qHead],cz=_bfsQz[qHead];qHead++;
+    const d=_bfsDist[idx(cx,cz)];
+    for(const[dx,dz]of[[0,-1],[0,1],[-1,0],[1,0]]){
+      const nx=cx+dx,nz=cz+dz;
+      if(nx<0||nz<0||nx>=MW||nz>=MH||mazeGrid[nz][nx]===0)continue;
+      if(_bfsDist[idx(nx,nz)]!==-1)continue;
+      _bfsDist[idx(nx,nz)]=d+1;
+      _bfsQx[qTail]=nx;_bfsQz[qTail]=nz;qTail++;
+    }
+  }
+  return _bfsDist;
+}
 
 function bfsNext(sx,sz,tx,tz){
   if(sx===tx&&sz===tz)return null;
@@ -1160,8 +1245,7 @@ function playEscape(){
 
 // ── FOG OF WAR ──
 let visited=[];
-let _visCount=0;   // 밝혀진 칸 수를 증분으로 유지 — drawMM에서 매번 625칸 세던 루프를 대체
-function initVisited(){visited=Array.from({length:MH},()=>new Array(MW).fill(false));_lastVisGx=-999;_lastVisGz=-999;_lastVisYaw=999;_visCount=0;_mmVisitedCount=-1;}
+function initVisited(){visited=Array.from({length:MH},()=>new Array(MW).fill(false));_lastVisGx=-999;_lastVisGz=-999;_lastVisYaw=999;mmClearTerrain();}
 const FOV_COS=Math.cos(60*Math.PI/180);
 let _lastVisGx=-999,_lastVisGz=-999,_lastVisYaw=999;
 function updateVisibility(){
@@ -1171,7 +1255,7 @@ function updateVisibility(){
   if(pgx===_lastVisGx&&pgz===_lastVisGz&&yawDelta<0.15) return;
   _lastVisGx=pgx;_lastVisGz=pgz;_lastVisYaw=P.yaw;
 
-  if(pgx>=0&&pgz>=0&&pgx<MW&&pgz<MH&&!visited[pgz][pgx]){visited[pgz][pgx]=true;_visCount++;}
+  if(pgx>=0&&pgz>=0&&pgx<MW&&pgz<MH&&!visited[pgz][pgx]){visited[pgz][pgx]=true;_mmNew.push([pgx,pgz]);}
   const fwdX=-Math.sin(P.yaw),fwdZ=-Math.cos(P.yaw);
   for(let dz=-2;dz<=2;dz++)for(let dx=-2;dx<=2;dx++){
     if(dx===0&&dz===0)continue;
@@ -1180,7 +1264,7 @@ function updateVisibility(){
     if((dx/len)*fwdX+(dz/len)*fwdZ<FOV_COS)continue;
     const gx=pgx+dx,gz=pgz+dz;
     if(gx<0||gz<0||gx>=MW||gz>=MH)continue;
-    if(!visited[gz][gx]&&hasLOS(pgx,pgz,gx,gz)){visited[gz][gx]=true;_visCount++;}
+    if(!visited[gz][gx]&&hasLOS(pgx,pgz,gx,gz)){visited[gz][gx]=true;_mmNew.push([gx,gz]);}
   }
 }
 
@@ -1189,30 +1273,33 @@ const mm=document.getElementById('mmCanvas'),mc=mm.getContext('2d'),MM=110;
 // 지형(길/벽) 레이어는 새로 밝혀진 칸이 있을 때만 오프스크린에 갱신 — 매 프레임 625칸 순회 제거
 const mmTerrain=document.createElement('canvas');mmTerrain.width=MM;mmTerrain.height=MM;
 const mtCtx=mmTerrain.getContext('2d');
-let _mmVisitedCount=0;
+let _mmNew=[];   // 아직 지형 레이어에 반영되지 않은 새 칸
 
-function redrawTerrainLayer(){
+// 지형 레이어는 "새로 밝혀진 칸"만 덧그린다. 전체를 다시 그리면 41×41에서 1,681칸을
+// 걸을 때마다 훑게 된다. 캔버스는 유지되므로 새 칸만 얹으면 된다.
+function mmClearTerrain(){
   mtCtx.clearRect(0,0,MM,MM);mtCtx.fillStyle='rgba(0,0,0,.92)';mtCtx.fillRect(0,0,MM,MM);
+  _mmNew.length=0;
+}
+function mmDrawNewCells(){
   const cw=MM/MW,ch=MM/MH;
-  for(let r=0;r<MH;r++)for(let c=0;c<MW;c++){
-    if(!visited[r][c])continue;
+  for(const[c,r] of _mmNew){
     mtCtx.fillStyle=mazeGrid[r][c]===1?'#c8854a':'#2a1e12';
     mtCtx.fillRect(c*cw,r*ch,cw,ch);
   }
+  _mmNew.length=0;
   if(visited[exitPos.z]&&visited[exitPos.z][exitPos.x]){
     mtCtx.fillStyle='#0f8';mtCtx.shadowColor='#0f8';mtCtx.shadowBlur=5;
     mtCtx.fillRect(exitPos.x*cw+1,exitPos.z*ch+1,cw-2,ch-2);mtCtx.shadowBlur=0;
   }
-  _mmVisitedCount=_visCount;
 }
 
 function drawMM(){
-  // 새로 밝혀진 칸이 생겼을 때만 지형 레이어 재생성 (_visCount는 updateVisibility가 증분 갱신)
-  if(_visCount!==_mmVisitedCount) redrawTerrainLayer();
+  if(_mmNew.length) mmDrawNewCells();
 
   const cw=MM/MW,ch=MM/MH;
   mc.clearRect(0,0,MM,MM);
-  mc.drawImage(mmTerrain,0,0); // 캐싱된 지형을 그대로 복사 (fillRect 625회 대신 1회 drawImage)
+  mc.drawImage(mmTerrain,0,0); // 캐싱된 지형을 그대로 복사
 
   for(const m of monsters){
     if(!visited[m.gz]||!visited[m.gz][m.gx])continue;
@@ -1240,21 +1327,38 @@ function updateMonBar(n){
 }
 
 // ── SPAWN ──
-function findSpawn(idx,total){
-  const zones=[[MW-4,MH-4],[1,MH-4],[MW-4,1],[Math.floor(MW/2),Math.floor(MH/2)]];
-  const[zx,zz]=zones[idx%zones.length];
-  for(let t=0;t<20;t++){
-    const gx=Math.max(1,Math.min(MW-2,zx+(Math.random()*4-2|0)));
-    const gz=Math.max(1,Math.min(MH-2,zz+(Math.random()*4-2|0)));
-    if(mazeGrid[gz]&&mazeGrid[gz][gx]===1)return[gx,gz];
-  }
-  // 20회 랜덤 시도 실패 시 — 전수 탐색으로 반드시 유효한 길 칸을 찾음 (NaN/벽 스폰 원천 차단)
-  for(let r=1;r<MH-1;r++){
-    for(let c=1;c<MW-1;c++){
-      if(mazeGrid[r][c]===1) return[c,r];
-    }
-  }
-  return[1,1]; // 최후의 보루 — 시작 지점 (항상 길로 보장됨)
+// 모든 길 칸 목록 (매 레벨 1회 수집해 시작·출구·몬스터 배치에 재사용)
+let pathCells=[];
+function collectPathCells(){
+  pathCells.length=0;
+  for(let r=1;r<MH-1;r++)for(let c=1;c<MW-1;c++)
+    if(mazeGrid[r][c]===1) pathCells.push([c,r]);
+}
+
+// 시작 지점과 출구를 무작위로 잡되, 둘 사이 "실제 이동 거리"가 충분히 멀어야 한다.
+// 직선거리로 재면 벽 하나 사이에 두고 붙어 있을 수 있다.
+function pickStartAndExit(){
+  collectPathCells();
+  if(!pathCells.length) return {start:[1,1],exit:[1,1]};
+  const start=pathCells[(Math.random()*pathCells.length)|0];
+  const dist=bfsDistances(start[0],start[1]);
+  let far=0;
+  for(const[c,r]of pathCells){const d=dist[r*MW+c]; if(d>far)far=d;}
+  // 가장 먼 지점의 75% 이상 떨어진 칸 중에서 무작위 — 매번 다르면서도 항상 멀다
+  const cand=pathCells.filter(([c,r])=>dist[r*MW+c]>=far*0.75);
+  const exit=cand.length?cand[(Math.random()*cand.length)|0]:pathCells[pathCells.length-1];
+  return {start,exit,startDist:far};
+}
+
+// 몬스터는 플레이어에게서 최소 거리 이상 떨어진 칸에만 스폰한다.
+// 시작하자마자 눈앞에 있으면 손쓸 도리가 없다.
+function findSpawn(playerDist,minDist){
+  const cand=pathCells.filter(([c,r])=>playerDist[r*MW+c]>=minDist);
+  if(cand.length) return cand[(Math.random()*cand.length)|0];
+  // 조건을 만족하는 칸이 없으면(작은 미로) 가장 먼 칸으로
+  let best=pathCells[0],bd=-1;
+  for(const[c,r]of pathCells){const d=playerDist[r*MW+c]; if(d>bd){bd=d;best=[c,r];}}
+  return best||[1,1];
 }
 
 // ── LEVEL ──
@@ -1262,12 +1366,24 @@ let level=1,steps=0,gameActive=false;
 function startLevel(lv){
   level=lv;steps=0;gameActive=false;lastStep=0;
   monsters.forEach(m=>m.remove());monsters=[];
-  mazeGrid=generateMaze(MW,MH);exitPos={x:MW-2,z:MH-2};
-  P.x=CELL;P.z=CELL;P.yaw=0;P.targetYaw=0;P.vx=0;P.vz=0;P.spd=0;
+  MW=MH=mazeSizeFor(lv);                       // 레벨이 오를수록 넓어진다 (상한 MAZE_MAX)
+  mazeGrid=generateMaze(MW,MH);
+  const {start,exit}=pickStartAndExit();
+  exitPos={x:exit[0],z:exit[1]};
+  P.x=start[0]*CELL;P.z=start[1]*CELL;P.vx=0;P.vz=0;P.spd=0;
+  // 시작 시 뚫린 쪽을 바라보게 — 전방 벡터가 (-sin,-cos)이므로 yaw=atan2(-dx,-dz)
+  P.yaw=0;
+  for(const[dx,dz]of[[0,-1],[1,0],[0,1],[-1,0]]){
+    if(!isWall(start[0]+dx,start[1]+dz)){P.yaw=Math.atan2(-dx,-dz);break;}
+  }
+  P.targetYaw=P.yaw;
   bob.phase=0;bob.y=0;bob.roll=0;
   buildWorld();initVisited();updateVisibility();drawMM();
   const cnt=MON_COUNT(lv),spd=MON_BASE_SPD*(1+MON_SPD_INC*(lv-1));
-  for(let i=0;i<cnt;i++){const[gx,gz]=findSpawn(i,cnt);monsters.push(new Monster(gx,gz,spd));}
+  // 플레이어 기준 거리 맵을 한 번만 구해 모든 몬스터 배치에 재사용
+  const pDist=bfsDistances(start[0],start[1]).slice();
+  const minSpawn=Math.max(8,Math.floor(MW*0.35));
+  for(let i=0;i<cnt;i++){const[gx,gz]=findSpawn(pDist,minSpawn);monsters.push(new Monster(gx,gz,spd));}
   updateMonBar(cnt);
   document.getElementById('hudLv').textContent=lv;
   document.getElementById('hudSt').textContent=0;
