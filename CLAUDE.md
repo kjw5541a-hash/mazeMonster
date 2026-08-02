@@ -14,7 +14,7 @@
 ```
 index.html          게임 전체 (약 1,450줄) — HTML + CSS + JS 단일 파일
 manifest.json       PWA 매니페스트
-sw.js               Service Worker (캐시명 dungeon-escape-v11)
+sw.js               Service Worker (캐시명 dungeon-escape-v12)
 icon-192.svg        아이콘
 icon-512.svg        아이콘
 README.md
@@ -478,6 +478,22 @@ iOS Safari는 `deviceMemory`를 **아예 노출하지 않고**(`undefined`),
 `cores ≤ 4`로 뒀더니 최신 아이폰까지 전부 LOW로 떨어져 "너무 어둡다"는 문제가
 발생했습니다. `deviceMemory`는 `undefined`와 실제 저사양을 구분해야 하므로
 `||` 기본값으로 숫자를 채우지 말고 `mem !== undefined` 검사를 유지하십시오.
+
+### 프리셋을 올린다고 항상 좋아지지 않습니다
+
+적응형은 **FPS만 보고 `renderScale`을 내립니다.** 더 무거운 프리셋을 고르면 그 대가로
+해상도가 깎여, 실효 픽셀 밀도가 오히려 낮아질 수 있습니다.
+
+아이폰 실측 예:
+
+| | prCap | × renderScale | **실효 배율** | FPS |
+|---|---|---|---|---|
+| HIGH | 2.0 | ×1.00 | **2.0** | 59~60 |
+| ULTRA | 3.0 | **×0.50** (하한) | **1.5** | 53~60 |
+
+ULTRA는 광원이 11개라 절반 해상도로도 60을 못 지키고, 결과적으로 **HIGH보다 흐리고
+불안정**합니다. `품질` 행의 배율이 하한(0.5)에 붙어 있으면 그 프리셋은 그 기기에
+과합니다 — 한 단계 내리는 것이 화질·프레임 모두에 이득입니다.
 
 ### 검증 방법
 

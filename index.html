@@ -1541,7 +1541,9 @@ function updatePerf(rawDt){
   pLights.textContent=lightCount;
   pLights.className=cls(lightCount,9,16);
   pObjs.textContent=objCount;
-  pObjs.className=cls(objCount,150,400);
+  // 청크 병합 이후 41×41에서 200~400이 정상 범위다. 병합 전(칸마다 Mesh) 기준인
+  // 150/400을 그대로 두면 정상값에 계속 경고가 뜬다.
+  pObjs.className=cls(objCount,600,1200);
 
   pQual.textContent=QNAME;
   pScale.textContent='×'+renderScale.toFixed(2);
