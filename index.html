@@ -65,7 +65,9 @@ body{background:#080a10;overflow:hidden;font-family:'Courier New',monospace;touc
 #monsterBar{position:fixed;top:68px;left:50%;transform:translateX(-50%);display:flex;gap:8px;z-index:10;pointer-events:none;}
 .mIcon{font-size:18px;filter:drop-shadow(0 0 4px red);}
 /* 품질 프리셋 선택 (타이틀 화면 전용) */
-#qbar{display:flex;gap:6px;margin-top:2px;}
+.qbar{display:flex;gap:6px;margin-top:2px;}
+.rec{font-size:10px;color:rgba(255,190,110,.6);letter-spacing:1px;}
+.sbtn-sm{margin-top:6px;padding:7px 22px;font-size:11px;letter-spacing:2px;opacity:.75;}
 .qbtn{padding:7px 13px;background:transparent;border:1px solid rgba(255,102,34,.4);
       color:rgba(255,140,70,.7);font-family:'Courier New',monospace;font-size:10px;
       letter-spacing:2px;cursor:pointer;-webkit-tap-highlight-color:transparent;}
@@ -128,22 +130,30 @@ body{background:#080a10;overflow:hidden;font-family:'Courier New',monospace;touc
   <div class="stitle">DUNGEON ESCAPE</div>
   <div class="ssub">괴물을 피해 탈출하라</div>
   <div class="ssub" style="font-size:9px;opacity:.5;margin-top:4px">왼쪽 끌기 = 이동 (살살 밀면 소리가 안 남) · 오른쪽 문지르기 = 시선 · WASD</div>
+  <div class="ssub rec" id="titleRec"></div>
   <button class="sbtn" id="startBtn">START</button>
+  <button class="sbtn sbtn-sm" id="restartBtn">처음부터</button>
   <div class="ssub" style="font-size:9px;opacity:.55;margin-top:6px">QUALITY</div>
-  <div id="qbar"></div>
+  <div class="qbar" data-qbar></div>
   <div class="qnote" id="qnote"></div>
 </div>
 <div class="screen hidden" id="winScreen">
   <div class="badge">🏃</div>
   <div class="stitle" style="font-size:26px">ESCAPED!</div>
   <div class="ssub" id="winSub"></div>
+  <div class="ssub rec" id="winRec"></div>
   <button class="sbtn" id="nextBtn">NEXT LEVEL</button>
+  <div class="ssub" style="font-size:9px;opacity:.5;margin-top:4px">QUALITY</div>
+  <div class="qbar" data-qbar></div>
 </div>
 <div class="screen hidden" id="deadScreen">
   <div class="badge">💀</div>
   <div class="stitle" style="font-size:26px;color:#ff2200">YOU DIED</div>
   <div class="ssub" id="deadSub"></div>
+  <div class="ssub rec" id="deadRec"></div>
   <button class="sbtn" id="retryBtn" style="border-color:#ff2200;color:#ff2200">RETRY</button>
+  <div class="ssub" style="font-size:9px;opacity:.5;margin-top:4px">QUALITY</div>
+  <div class="qbar" data-qbar></div>
 </div>
 <script>
 // 전역 에러 핸들러 — CDN 모듈 내부 예외도 최대한 상세히 콘솔에 노출
@@ -165,6 +175,7 @@ import { generateMaze,bfsDistances,bfsNext,hasLOS } from './js/maze.js';
 import { makeDungeonWall,makeDungeonFloor,makeDungeonCeil,makeFleshTex } from './js/textures.js';
 import { unlockAudio,updateAudioListener,footstep,monsterStep,playGrowl,torchCrackle,
          playShriek,heartbeat,playDeath,playEscape } from './js/audio.js';
+import { progress,loadProgress,markLevel,markEscape,resetRun } from './js/save.js';
 
 // MW/MH는 레벨마다 재할당되므로 main이 소유한다 (ES 모듈은 import한 바인딩에 대입할 수 없다)
 let MW=MAZE_MIN,MH=MAZE_MIN;
@@ -248,7 +259,9 @@ function jointLimb(geo,len,parent,x,y,z){
 // ── PLAYER ──
 const P={x:CELL,z:CELL,yaw:0,targetYaw:0,vx:0,vz:0,spd:0};
 const bob={phase:0,y:0,roll:0};
-let lastStep=0,escaped=0;
+let lastStep=0;
+loadProgress();
+let escaped=progress.totalEscapes;
 
 // ── KEYBOARD ──
 const K={f:0,b:0,tL:0,tR:0};
@@ -884,17 +897,20 @@ function startLevel(lv){
   document.getElementById('hudSt').textContent=0;
   document.getElementById('hudEsc').textContent=escaped;
   document.getElementById('danger').style.opacity='0';
+  markLevel(lv);
   gameActive=true;
 }
 function onEscape(){
-  gameActive=false;escaped++;playEscape();
+  gameActive=false;escaped++;markEscape(level+1);playEscape();
   document.getElementById('winSub').textContent='Level '+level+' cleared · Steps: '+steps;
+  document.getElementById('winRec').textContent='최고 레벨 '+progress.bestLevel+' · 누적 탈출 '+progress.totalEscapes;
   showScreen('winScreen');
   const fl=document.getElementById('flash');fl.style.opacity='.6';setTimeout(()=>fl.style.opacity='0',200);
 }
 function onDeath(){
   gameActive=false;playDeath();
   document.getElementById('deadSub').textContent='Level '+level+' · Steps: '+steps;
+  document.getElementById('deadRec').textContent='최고 레벨 '+progress.bestLevel+' · 누적 탈출 '+progress.totalEscapes;
   showScreen('deadScreen');
   const fl=document.getElementById('flash');fl.style.opacity='.92';setTimeout(()=>fl.style.opacity='0',220);
 }
@@ -906,23 +922,31 @@ function showScreen(id){
 // 광원 개수·텍스처·재질·antialias는 부팅 시점에 확정되므로 reload로만 적용한다.
 // 타이틀 화면에서는 잃을 진행 상황이 없고, SW 캐시 덕에 리로드가 즉시 끝난다.
 (function initQualityUI(){
-  const bar=document.getElementById('qbar');
-  for(const name of Object.keys(QUALITY_PRESETS)){
-    const b=document.createElement('button');
-    b.className='qbtn'+(name===QNAME?' on':'');
-    b.textContent=QUALITY_PRESETS[name].label;
-    b.addEventListener('click',()=>{
-      if(name===QNAME)return;
-      try{localStorage.setItem(QKEY,name);}catch(_){}
-      location.reload();
-    });
-    bar.appendChild(b);
+  for(const bar of document.querySelectorAll('[data-qbar]')){
+    for(const name of Object.keys(QUALITY_PRESETS)){
+      const b=document.createElement('button');
+      b.className='qbtn'+(name===QNAME?' on':'');
+      b.textContent=QUALITY_PRESETS[name].label;
+      b.addEventListener('click',()=>{
+        if(name===QNAME)return;
+        try{localStorage.setItem(QKEY,name);}catch(_){}
+        location.reload();   // 진행은 save.js가 남기므로 리로드해도 이어서 할 수 있다
+      });
+      bar.appendChild(b);
+    }
   }
   document.getElementById('qnote').textContent=
     '자동 감지 '+detectQuality()+' · 광원 '+(1+Q.torchLights+Q.monLights+1)+'개 · 변경 시 재시작';
+  // 타이틀 기록 표시 — 이어할 레벨이 있으면 START가 거기서 시작한다
+  const t=document.getElementById('titleRec');
+  t.textContent = progress.resumeLevel>1
+    ? `LEVEL ${progress.resumeLevel}부터 · 최고 ${progress.bestLevel} · 누적 탈출 ${progress.totalEscapes}`
+    : (progress.bestLevel>1 ? `최고 레벨 ${progress.bestLevel} · 누적 탈출 ${progress.totalEscapes}` : '');
+  document.getElementById('restartBtn').style.display = progress.resumeLevel>1 ? '' : 'none';
 })();
 
-document.getElementById('startBtn').addEventListener('click',()=>{unlockAudio();showScreen(null);startLevel(1);});
+document.getElementById('startBtn').addEventListener('click',()=>{unlockAudio();showScreen(null);startLevel(progress.resumeLevel);});
+document.getElementById('restartBtn').addEventListener('click',()=>{unlockAudio();resetRun();showScreen(null);startLevel(1);});
 document.getElementById('nextBtn').addEventListener('click',()=>{unlockAudio();showScreen(null);startLevel(level+1);});
 document.getElementById('retryBtn').addEventListener('click',()=>{unlockAudio();showScreen(null);startLevel(level);});
 
@@ -1046,6 +1070,7 @@ function updatePerf(rawDt){
 }
 
 // ── GAME LOOP ──
+let _lastHeartbeat=0;   // 심장박동 간격 — 소리 자체는 audio.js, 박자는 게임 루프가 관리
 const clock=new THREE.Clock();
 let mmTick=0;
 function animate(){

@@ -19,7 +19,8 @@ js/maze.js          미로 생성 + BFS/LOS
 js/textures.js      캔버스 텍스처 생성
 js/audio.js         공간 오디오 전체
 manifest.json       PWA 매니페스트
-sw.js               Service Worker (캐시명 dungeon-escape-v15)
+js/save.js          진행 저장 (localStorage)
+sw.js               Service Worker (캐시명 dungeon-escape-v16)
 icon-192.svg        아이콘
 icon-512.svg        아이콘
 README.md
@@ -232,6 +233,13 @@ ES 모듈은 `import`한 바인딩에 대입할 수 없어서, 이런 상태를 
 > 더 쪼개려면 상태 소유 구조부터 바꿔야 합니다.
 
 **파일을 추가하면 `sw.js`의 `ASSETS` 목록에 반드시 넣으십시오.** 빠지면 오프라인에서 깨집니다.
+
+> **분리할 때 반드시 확인할 것** — 옮긴 코드가 쓰던 변수를 main이 계속 참조하는지.
+> `_lastHeartbeat`(심장박동 박자)가 `audio.js`로 딸려 갔는데 게임 루프가 여전히 참조해
+> `ReferenceError`가 났습니다. **몬스터가 7칸 안에 들어와야 실행되는 코드라
+> 대부분의 테스트를 통과했고, 6회 중 1회꼴로만 재현됐습니다.**
+> 분리 후에는 각 모듈의 최상위 선언 이름을 모아, main이 import도 재선언도 하지 않은 채
+> 참조하는 것이 있는지 **정적으로 전수 검사**하십시오.
 
 ---
 
@@ -566,12 +574,26 @@ ULTRA는 광원이 11개라 절반 해상도로도 60을 못 지키고, 결과�
 
 ---
 
+## 진행 저장 — `js/save.js`
+
+`localStorage['de_progress']`에 `{bestLevel, totalEscapes, resumeLevel}`를 남깁니다.
+
+`resumeLevel`이 핵심입니다. 이게 있어야 **승리·사망 화면에서 품질을 바꿔도**(= 리로드)
+진행이 날아가지 않습니다. 그래서 품질 선택 UI가 타이틀 외 두 화면에도 붙어 있습니다.
+
+- `markLevel(lv)` — 레벨 진입 시. `resumeLevel` 갱신 + `bestLevel` 최고치 유지
+- `markEscape(nextLevel)` — 탈출 시. **`resumeLevel`을 다음 레벨로 올립니다.**
+  이걸 빼먹으면 승리 화면에서 리로드했을 때 방금 깬 레벨을 다시 하게 됩니다
+- `resetRun()` — "처음부터". 평생 기록은 남기고 `resumeLevel`만 1로
+
+저장 형식이 손상돼도 게임이 죽지 않도록 필드별로 `Number.isFinite` 검사 후 받습니다.
+
+---
+
 ## 다음 작업 후보 (우선순위)
 
 | 순위 | 작업 | 비고 |
 |---|---|---|
-| 높음 | **모듈 분리** | 단일 파일이 1,300줄. `maze.js` / `monster.js` / `render.js` / `audio.js` / `quality.js` 등으로 분리 |
-| 중간 | 진행 저장 | 최고 기록, 누적 탈출 횟수. 이게 있어야 승리·사망 화면에서도 프리셋 변경(=reload)을 열어줄 수 있음 |
 | 중간 | 게임플레이 확장 | 스태미나·달리기, 은신, 열쇠·잠긴 문, 층 개념, 몬스터 종류 분화 |
 | 낮음 | ~~재질 경량화~~ | 품질 프리셋에 포함되어 완료 (LOW/MEDIUM = Phong) |
 

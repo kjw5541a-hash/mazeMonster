@@ -211,7 +211,6 @@ export function playShriekSynth(x,z){
 }
 
 // 심장박동 — 몬스터가 아주 가까울 때 (2D, 플레이어 자신의 것)
-let _lastHeartbeat=0;
 export function heartbeat(intensity){
   try{
     const c=getAC();
