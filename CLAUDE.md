@@ -1,7 +1,7 @@
 # DUNGEON ESCAPE — 프로젝트 컨텍스트
 
 3D 던전 탈출 호러 게임. 브라우저에서 동작하는 PWA.
-바닐라 JS + Three.js r128, **빌드 도구 없이 단일 HTML 파일**로 구성.
+바닐라 JS + Three.js r128, **빌드 도구 없이** 네이티브 ES 모듈로 구성.
 
 - 저장소: `mazeMonster`
 - 배포: GitHub Pages (`.github/workflows/deploy.yml` — main push 시 자동 배포)
@@ -12,9 +12,15 @@
 ## 파일 구조
 
 ```
-index.html          게임 전체 (약 1,450줄) — HTML + CSS + JS 단일 파일
+index.html          HTML + CSS + 메인 스크립트 (약 1,140줄)
+js/constants.js     밸런스·치수 상수
+js/quality.js       품질 프리셋·자동 감지
+js/maze.js          미로 생성 + BFS/LOS
+js/textures.js      캔버스 텍스처 생성
+js/audio.js         공간 오디오 전체
 manifest.json       PWA 매니페스트
-sw.js               Service Worker (캐시명 dungeon-escape-v14)
+js/save.js          진행 저장 (localStorage)
+sw.js               Service Worker (캐시명 dungeon-escape-v17)
 icon-192.svg        아이콘
 icon-512.svg        아이콘
 README.md
@@ -206,6 +212,34 @@ r128의 `BufferGeometryUtils`는 `examples/` 쪽이라 코어 모듈에 없습�
 > **실기기(아이폰) 실측 결과 HIGH 프리셋에서 41×41이 59~60fps로 상한을 유지합니다.**
 > 삼각형 1만 개는 GPU에게 사실상 공짜이고, 줄어든 draw call·객체 수만 이득으로 남습니다.
 > 앞으로도 지오메트리 양이 걸린 판단은 **반드시 실기기 수치로 확정하십시오.**
+
+---
+
+## 모듈 구성
+
+**빌드 도구는 여전히 없습니다.** 브라우저 네이티브 ES 모듈이라 `<script type="module">`이
+그대로 `./js/*.js`를 불러옵니다.
+
+분리 기준은 **공유 가변 상태가 없는 것부터**입니다. `MW`/`MH`/`mazeGrid`/`P`처럼 매 레벨
+바뀌고 여러 곳이 함께 읽는 상태는 **`index.html`(main)이 소유**합니다.
+ES 모듈은 `import`한 바인딩에 대입할 수 없어서, 이런 상태를 모듈로 옮기면 전부
+객체 프로퍼티나 setter로 바꾸는 대규모 재작성이 필요합니다. 테스트가 없는 상태에서
+그 작업은 위험 대비 이득이 없습니다.
+
+그래서 `maze.js`의 BFS/LOS는 **`(grid, MW, MH, ...)`를 인자로 받습니다.**
+`textures.js`는 `anisotropy`를, `audio.js`의 리스너 동기화는 플레이어 좌표를 인자로 받습니다.
+
+> 몬스터·월드 빌드·게임 루프는 공유 상태 의존이 커서 main에 남겼습니다.
+> 더 쪼개려면 상태 소유 구조부터 바꿔야 합니다.
+
+**파일을 추가하면 `sw.js`의 `ASSETS` 목록에 반드시 넣으십시오.** 빠지면 오프라인에서 깨집니다.
+
+> **분리할 때 반드시 확인할 것** — 옮긴 코드가 쓰던 변수를 main이 계속 참조하는지.
+> `_lastHeartbeat`(심장박동 박자)가 `audio.js`로 딸려 갔는데 게임 루프가 여전히 참조해
+> `ReferenceError`가 났습니다. **몬스터가 7칸 안에 들어와야 실행되는 코드라
+> 대부분의 테스트를 통과했고, 6회 중 1회꼴로만 재현됐습니다.**
+> 분리 후에는 각 모듈의 최상위 선언 이름을 모아, main이 import도 재선언도 하지 않은 채
+> 참조하는 것이 있는지 **정적으로 전수 검사**하십시오.
 
 ---
 
@@ -403,8 +437,21 @@ AAC 디코더가 없어 검증이 불가능합니다. MP3는 전 브라우저가
 > 않았습니다.** `elementFromPoint`로 확인하면 전진 버튼 자리에서 `perfToggle`이
 > 잡혔습니다. 조작 UI를 추가할 때는 항상 두 방향 모두에서 히트테스트를 확인하십시오.
 
-> **미검증**: 아이폰 가로모드의 노치·홈 인디케이터. 이 프로젝트는 `safe-area-inset`을
-> 전혀 쓰지 않습니다. 실기기에서 스틱이 노치에 가리면 `env(safe-area-inset-*)` 여백이 필요합니다.
+### 노치 — `viewport-fit=cover` + 안전 영역 여백
+
+**`viewport-fit=cover`를 빼지 마십시오.** 이게 없으면 노치가 있는 아이폰에서 iOS가
+**뷰포트를 안전 영역 안으로 줄여버리고**, 남는 자리에 배경색(`#080a10`)이 그대로
+드러납니다. 가로모드에서 위·좌·우에 검은 띠가 생기고 HUD가 잘렸습니다.
+`apple-mobile-web-app-capable`이 켜져 있어 상단까지 생깁니다.
+
+화면은 끝까지 그리되, UI만 `:root`의 `--sat/--sal/--sar/--sab` 변수로 안쪽에 둡니다.
+`env(safe-area-inset-*, 0px)`이라 미지원 브라우저에서는 0으로 떨어집니다.
+
+터치 영역(`#touchL`/`#touchR`)은 일부러 화면 끝까지 둡니다 — 노치 안쪽은 애초에
+손가락이 닿지 않으므로 여백을 줄 이유가 없고, 영역은 넓을수록 좋습니다.
+
+> 헤드리스 브라우저에는 `env()` 값이 없어 **실기기 확인이 필요합니다.**
+> 검증할 때는 `:root` 변수를 직접 덮어써 노치를 흉내낼 수 있습니다.
 
 ### 성능 계측 오버레이
 좌상단에 FPS / 최저 / 평균 / DRAW / LIGHT / TRIS / OBJ / 품질 표시.
@@ -539,12 +586,26 @@ ULTRA는 광원이 11개라 절반 해상도로도 60을 못 지키고, 결과�
 
 ---
 
+## 진행 저장 — `js/save.js`
+
+`localStorage['de_progress']`에 `{bestLevel, totalEscapes, resumeLevel}`를 남깁니다.
+
+`resumeLevel`이 핵심입니다. 이게 있어야 **승리·사망 화면에서 품질을 바꿔도**(= 리로드)
+진행이 날아가지 않습니다. 그래서 품질 선택 UI가 타이틀 외 두 화면에도 붙어 있습니다.
+
+- `markLevel(lv)` — 레벨 진입 시. `resumeLevel` 갱신 + `bestLevel` 최고치 유지
+- `markEscape(nextLevel)` — 탈출 시. **`resumeLevel`을 다음 레벨로 올립니다.**
+  이걸 빼먹으면 승리 화면에서 리로드했을 때 방금 깬 레벨을 다시 하게 됩니다
+- `resetRun()` — "처음부터". 평생 기록은 남기고 `resumeLevel`만 1로
+
+저장 형식이 손상돼도 게임이 죽지 않도록 필드별로 `Number.isFinite` 검사 후 받습니다.
+
+---
+
 ## 다음 작업 후보 (우선순위)
 
 | 순위 | 작업 | 비고 |
 |---|---|---|
-| 높음 | **모듈 분리** | 단일 파일이 1,300줄. `maze.js` / `monster.js` / `render.js` / `audio.js` / `quality.js` 등으로 분리 |
-| 중간 | 진행 저장 | 최고 기록, 누적 탈출 횟수. 이게 있어야 승리·사망 화면에서도 프리셋 변경(=reload)을 열어줄 수 있음 |
 | 중간 | 게임플레이 확장 | 스태미나·달리기, 은신, 열쇠·잠긴 문, 층 개념, 몬스터 종류 분화 |
 | 낮음 | ~~재질 경량화~~ | 품질 프리셋에 포함되어 완료 (LOW/MEDIUM = Phong) |
 
