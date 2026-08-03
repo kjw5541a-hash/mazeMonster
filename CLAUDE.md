@@ -20,7 +20,7 @@ js/textures.js      캔버스 텍스처 생성
 js/audio.js         공간 오디오 전체
 manifest.json       PWA 매니페스트
 js/save.js          진행 저장 (localStorage)
-sw.js               Service Worker (캐시명 dungeon-escape-v16)
+sw.js               Service Worker (캐시명 dungeon-escape-v17)
 icon-192.svg        아이콘
 icon-512.svg        아이콘
 README.md
@@ -437,9 +437,21 @@ AAC 디코더가 없어 검증이 불가능합니다. MP3는 전 브라우저가
 > 않았습니다.** `elementFromPoint`로 확인하면 전진 버튼 자리에서 `perfToggle`이
 > 잡혔습니다. 조작 UI를 추가할 때는 항상 두 방향 모두에서 히트테스트를 확인하십시오.
 
-> **노치·홈 인디케이터**: 이 프로젝트는 `safe-area-inset`을 전혀 쓰지 않지만,
-> **아이폰 가로모드 실기기에서 스틱 조작에 지장이 없음을 확인했습니다.**
-> 좌우 끝까지 붙는 UI를 새로 넣는다면 그때 `env(safe-area-inset-*)`를 재검토하십시오.
+### 노치 — `viewport-fit=cover` + 안전 영역 여백
+
+**`viewport-fit=cover`를 빼지 마십시오.** 이게 없으면 노치가 있는 아이폰에서 iOS가
+**뷰포트를 안전 영역 안으로 줄여버리고**, 남는 자리에 배경색(`#080a10`)이 그대로
+드러납니다. 가로모드에서 위·좌·우에 검은 띠가 생기고 HUD가 잘렸습니다.
+`apple-mobile-web-app-capable`이 켜져 있어 상단까지 생깁니다.
+
+화면은 끝까지 그리되, UI만 `:root`의 `--sat/--sal/--sar/--sab` 변수로 안쪽에 둡니다.
+`env(safe-area-inset-*, 0px)`이라 미지원 브라우저에서는 0으로 떨어집니다.
+
+터치 영역(`#touchL`/`#touchR`)은 일부러 화면 끝까지 둡니다 — 노치 안쪽은 애초에
+손가락이 닿지 않으므로 여백을 줄 이유가 없고, 영역은 넓을수록 좋습니다.
+
+> 헤드리스 브라우저에는 `env()` 값이 없어 **실기기 확인이 필요합니다.**
+> 검증할 때는 `:root` 변수를 직접 덮어써 노치를 흉내낼 수 있습니다.
 
 ### 성능 계측 오버레이
 좌상단에 FPS / 최저 / 평균 / DRAW / LIGHT / TRIS / OBJ / 품질 표시.

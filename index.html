@@ -2,16 +2,20 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no,viewport-fit=cover"/>
 <meta name="theme-color" content="#0a0808"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <title>DUNGEON ESCAPE</title>
 <link rel="manifest" href="manifest.json"/>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
+/* 노치·홈 인디케이터 여백. viewport-fit=cover로 화면 끝까지 그리는 대신,
+   UI는 이 값만큼 안으로 밀어 가려지지 않게 한다. */
+:root{--sat:env(safe-area-inset-top,0px);--sal:env(safe-area-inset-left,0px);
+      --sar:env(safe-area-inset-right,0px);--sab:env(safe-area-inset-bottom,0px);}
 body{background:#080a10;overflow:hidden;font-family:'Courier New',monospace;touch-action:none;user-select:none;-webkit-user-select:none;}
 #canvas{display:block;width:100vw;height:100vh;}
-#hud{position:fixed;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:12px 18px;z-index:10;pointer-events:none;background:linear-gradient(180deg,rgba(0,0,0,.85) 0%,transparent 100%);}
+#hud{position:fixed;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:calc(12px + var(--sat)) calc(18px + var(--sar)) 12px calc(18px + var(--sal));z-index:10;pointer-events:none;background:linear-gradient(180deg,rgba(0,0,0,.85) 0%,transparent 100%);}
 .hud-label{font-size:9px;letter-spacing:3px;color:rgba(255,170,50,.7);text-transform:uppercase;}
 .hud-value{font-size:20px;font-weight:bold;color:#ffaa33;text-shadow:0 0 8px #ff8800;letter-spacing:2px;}
 .hud-block{text-align:center;}
@@ -19,9 +23,9 @@ body{background:#080a10;overflow:hidden;font-family:'Courier New',monospace;touc
 #cross::before,#cross::after{content:'';position:absolute;background:rgba(255,160,50,.65);}
 #cross::before{width:1.5px;height:16px;left:50%;transform:translateX(-50%);}
 #cross::after{width:16px;height:1.5px;top:50%;transform:translateY(-50%);}
-#mmCanvas{position:fixed;bottom:165px;right:14px;z-index:11;border:1px solid rgba(255,130,30,.35);border-radius:4px;}
+#mmCanvas{position:fixed;bottom:calc(165px + var(--sab));right:calc(14px + var(--sar));z-index:11;border:1px solid rgba(255,130,30,.35);border-radius:4px;}
 /* 성능 계측 오버레이 */
-#perf{position:fixed;top:78px;left:12px;z-index:30;pointer-events:none;
+#perf{position:fixed;top:calc(78px + var(--sat));left:calc(12px + var(--sal));z-index:30;pointer-events:none;
       font-family:'Courier New',monospace;font-size:13px;line-height:1.65;
       color:#7fff9f;text-shadow:0 0 4px rgba(0,0,0,.9);
       background:rgba(0,0,0,.72);border:1px solid rgba(120,255,150,.3);
@@ -33,7 +37,7 @@ body{background:#080a10;overflow:hidden;font-family:'Courier New',monospace;touc
 #perf .lb{display:inline-block;width:52px;opacity:.65;}
 #perf .sep{border-top:1px solid rgba(120,255,150,.2);margin:5px 0;}
 #perf .hint{font-size:9px;opacity:.45;letter-spacing:0;}
-#perfToggle{position:fixed;top:78px;left:12px;width:172px;height:186px;z-index:31;
+#perfToggle{position:fixed;top:calc(78px + var(--sat));left:calc(12px + var(--sal));width:172px;height:186px;z-index:31;
             pointer-events:all;background:transparent;}
 #vig{position:fixed;inset:0;pointer-events:none;z-index:5;background:radial-gradient(ellipse at center,transparent 50%,rgba(0,0,0,.78) 100%);}
 #danger{position:fixed;inset:0;pointer-events:none;z-index:6;opacity:0;background:radial-gradient(ellipse at center,transparent 40%,rgba(180,0,0,.65) 100%);transition:opacity .25s;}
@@ -43,7 +47,7 @@ body{background:#080a10;overflow:hidden;font-family:'Courier New',monospace;touc
    z-index는 화면 오버레이(.screen=100)보다 낮고 #perfToggle(31)보다도 낮아야 한다 —
    대신 #touchL을 성능 패널 아래에서 시작시켜 애초에 겹치지 않게 한다. */
 #touchL,#touchR{position:fixed;bottom:0;z-index:15;pointer-events:all;touch-action:none;}
-#touchL{left:0;width:50%;top:272px;}
+#touchL{left:0;width:50%;top:calc(272px + var(--sat));}
 #touchR{right:0;width:50%;top:0;}
 /* 플로팅 스틱 — 누른 자리에 나타나고 떼면 사라진다 */
 #stick{position:fixed;z-index:16;pointer-events:none;width:112px;height:112px;margin:-56px 0 0 -56px;
@@ -53,7 +57,7 @@ body{background:#080a10;overflow:hidden;font-family:'Courier New',monospace;touc
 #stickKnob{position:absolute;left:50%;top:50%;width:48px;height:48px;margin:-24px 0 0 -24px;
            border-radius:50%;background:rgba(255,150,50,.26);border:1px solid rgba(255,175,80,.45);
            box-shadow:0 0 12px rgba(255,120,30,.35);}
-.screen{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,.92);z-index:100;gap:16px;transition:opacity .35s;}
+.screen{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:var(--sat) var(--sar) var(--sab) var(--sal);background:rgba(0,0,0,.92);z-index:100;gap:16px;transition:opacity .35s;}
 .screen.hidden{opacity:0;pointer-events:none;}
 .stitle{font-size:38px;font-weight:900;letter-spacing:6px;color:#ff6622;text-shadow:0 0 18px #ff4400,0 0 40px #ff220055;animation:flicker 5s infinite;}
 .ssub{font-size:11px;color:rgba(255,160,60,.8);letter-spacing:3px;text-transform:uppercase;}
@@ -62,7 +66,7 @@ body{background:#080a10;overflow:hidden;font-family:'Courier New',monospace;touc
 .badge{font-size:56px;}
 #spotFlash{position:fixed;inset:0;background:rgba(255,0,0,.32);opacity:0;pointer-events:none;z-index:89;transition:opacity .08s;}
 #flash{position:fixed;inset:0;background:#200;opacity:0;pointer-events:none;z-index:90;transition:opacity .15s;}
-#monsterBar{position:fixed;top:68px;left:50%;transform:translateX(-50%);display:flex;gap:8px;z-index:10;pointer-events:none;}
+#monsterBar{position:fixed;top:calc(68px + var(--sat));left:50%;transform:translateX(-50%);display:flex;gap:8px;z-index:10;pointer-events:none;}
 .mIcon{font-size:18px;filter:drop-shadow(0 0 4px red);}
 /* 품질 프리셋 선택 (타이틀 화면 전용) */
 .qbar{display:flex;gap:6px;margin-top:2px;}
@@ -77,16 +81,16 @@ body{background:#080a10;overflow:hidden;font-family:'Courier New',monospace;touc
 /* 가로모드 — 세로 높이가 짧을 때. 세로 기준으로 짜인 고정 크기들이 화면을 다 잡아먹는다.
    (iPhone 가로는 대략 390~430px 높이) */
 @media (max-height:520px){
-  #touchL{top:178px;}          /* 가로에서는 성능 패널이 y=170에서 끝난다 */
-  #hud{padding:6px 16px;}
+  #touchL{top:calc(178px + var(--sat));}          /* 가로에서는 성능 패널이 y=170에서 끝난다 */
+  #hud{padding:calc(6px + var(--sat)) calc(16px + var(--sar)) 6px calc(16px + var(--sal));}
   .hud-value{font-size:15px;}
   .hud-label{font-size:8px;letter-spacing:2px;}
-  #monsterBar{top:44px;}
-  #mmCanvas{bottom:132px;width:84px;height:84px;}
-  #perf{top:52px;font-size:10px;line-height:1.45;padding:5px 8px;min-width:132px;}
+  #monsterBar{top:calc(44px + var(--sat));}
+  #mmCanvas{bottom:calc(132px + var(--sab));width:84px;height:84px;}
+  #perf{top:calc(52px + var(--sat));font-size:10px;line-height:1.45;padding:5px 8px;min-width:132px;}
   #perf .lb{width:42px;}
   #perf .hint{display:none;}
-  #perfToggle{top:52px;width:136px;height:118px;}
+  #perfToggle{top:calc(52px + var(--sat));width:136px;height:118px;}
   .stitle{font-size:26px;letter-spacing:4px;}
   .screen{gap:8px;}
   .sbtn{margin-top:6px;padding:9px 34px;font-size:13px;}
