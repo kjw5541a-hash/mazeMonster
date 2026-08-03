@@ -2,13 +2,11 @@
 
 3D 던전 탈출 호러 게임. 브라우저에서 바로 플레이하는 PWA.
 
-몬스터를 피해 25×25 랜덤 미로를 탈출하세요.
+몬스터를 피해 랜덤 미로를 탈출하세요. 레벨이 오를수록 미로가 넓어집니다.
 
 ## 플레이
 
-**[▶ 플레이하기](https://USERNAME.github.io/dungeon-escape/)**
-
-> 위 주소의 `USERNAME`을 본인 GitHub 아이디로 바꾸세요.
+**[▶ 플레이하기](https://kjw5541a-hash.github.io/mazeMonster/)**
 
 ## 조작
 
