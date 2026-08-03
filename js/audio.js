@@ -228,6 +228,37 @@ export function heartbeat(intensity){
   }catch(_){}
 }
 
+// 열쇠 획득 — 짧고 밝은 상행 아르페지오
+export function playKeyPickup(){
+  try{const c=getAC();
+    [0,4,7,12].forEach((st,i)=>{
+      const o=c.createOscillator();o.type='triangle';
+      o.frequency.value=523.25*Math.pow(2,st/12);
+      const g=c.createGain();
+      g.gain.setValueAtTime(0,c.currentTime+i*.055);
+      g.gain.linearRampToValueAtTime(.13,c.currentTime+i*.055+.02);
+      g.gain.exponentialRampToValueAtTime(.001,c.currentTime+i*.055+.34);
+      o.connect(g);g.connect(masterGain);
+      o.start(c.currentTime+i*.055);o.stop(c.currentTime+i*.055+.36);});
+  }catch(_){}
+}
+
+// 잠긴 문을 밀었을 때 — 둔탁한 쇳소리
+export function playLocked(){
+  try{const c=getAC();
+    const src=c.createBufferSource();src.buffer=getNoiseBuf();
+    src.playbackRate.value=.45;
+    const f=c.createBiquadFilter();f.type='bandpass';f.frequency.value=180;f.Q.value=3;
+    const g=c.createGain();g.gain.setValueAtTime(.32,c.currentTime);
+    g.gain.exponentialRampToValueAtTime(.001,c.currentTime+.3);
+    src.connect(f);f.connect(g);g.connect(masterGain);src.start();
+    const o=c.createOscillator();o.type='square';o.frequency.value=92;
+    const og=c.createGain();og.gain.setValueAtTime(.1,c.currentTime);
+    og.gain.exponentialRampToValueAtTime(.001,c.currentTime+.18);
+    o.connect(og);og.connect(masterGain);o.start();o.stop(c.currentTime+.2);
+  }catch(_){}
+}
+
 export function playDeath(){
   try{const c=getAC();
     [80,60,45].forEach((fr,i)=>{const o=c.createOscillator();o.type='sawtooth';o.frequency.value=fr;

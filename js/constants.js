@@ -6,9 +6,10 @@ export const CELL=2.0,WALL_H=2.6;
 export const MAZE_MIN=25,MAZE_MAX=41,MAZE_STEP=4;
 export const mazeSizeFor=lv=>Math.min(MAZE_MAX,MAZE_MIN+(lv-1)*MAZE_STEP);
 export const PLAYER_R=0.32,PLAYER_SPD=4.5,TURN_SPD=2.6,ACCEL=16,FRIC=11;
-export const MON_COUNT=lv=>Math.min(lv,3);
+export const MON_COUNT=lv=>Math.min(lv,4);
 export const MON_BASE_SPD=2.2,MON_SPD_INC=0.12;
 export const MON_SIGHT_R=8,MON_HEAR_R=4,MON_KILL_R=0.7;
+export const KEY_PICK_R=0.75;   // 열쇠 획득 반경
 // 발각 직후의 돌진 — 이 세 값이 "달려든다"는 체감을 좌우한다. 난이도에 직결되므로
 // 사용자가 직접 플레이하며 조정할 값이다. 임의로 올리지 말 것.
 export const CHARGE_TIME=1.5,CHARGE_BOOST=1.35;

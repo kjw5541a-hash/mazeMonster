@@ -68,6 +68,15 @@ body{background:#080a10;overflow:hidden;font-family:'Courier New',monospace;touc
 #flash{position:fixed;inset:0;background:#200;opacity:0;pointer-events:none;z-index:90;transition:opacity .15s;}
 #monsterBar{position:fixed;top:calc(68px + var(--sat));left:50%;transform:translateX(-50%);display:flex;gap:8px;z-index:10;pointer-events:none;}
 .mIcon{font-size:18px;filter:drop-shadow(0 0 4px red);}
+/* 열쇠 소지 표시 — 없을 땐 어둡게 두어 "뭔가 있다"는 것만 알린다 */
+#keyHud{position:fixed;top:calc(96px + var(--sat));left:50%;transform:translateX(-50%);z-index:10;
+        pointer-events:none;font-size:19px;opacity:.22;filter:grayscale(1);transition:opacity .25s,filter .25s;}
+#keyHud.on{opacity:1;filter:none;text-shadow:0 0 10px #fc4;}
+#hint{position:fixed;bottom:26%;left:50%;transform:translateX(-50%);z-index:12;pointer-events:none;
+      font-size:12px;letter-spacing:2px;color:#ffcc66;text-shadow:0 0 8px rgba(0,0,0,.9);
+      background:rgba(0,0,0,.55);padding:6px 14px;border:1px solid rgba(255,180,60,.3);
+      opacity:0;transition:opacity .25s;white-space:nowrap;}
+#hint.on{opacity:1;}
 /* 품질 프리셋 선택 (타이틀 화면 전용) */
 .qbar{display:flex;gap:6px;margin-top:2px;}
 .rec{font-size:10px;color:rgba(255,190,110,.6);letter-spacing:1px;}
@@ -86,6 +95,8 @@ body{background:#080a10;overflow:hidden;font-family:'Courier New',monospace;touc
   .hud-value{font-size:15px;}
   .hud-label{font-size:8px;letter-spacing:2px;}
   #monsterBar{top:calc(44px + var(--sat));}
+  #keyHud{top:calc(68px + var(--sat));font-size:16px;}
+  #hint{bottom:30%;font-size:11px;}
   #mmCanvas{bottom:calc(132px + var(--sab));width:84px;height:84px;}
   #perf{top:calc(52px + var(--sat));font-size:10px;line-height:1.45;padding:5px 8px;min-width:132px;}
   #perf .lb{width:42px;}
@@ -109,6 +120,8 @@ body{background:#080a10;overflow:hidden;font-family:'Courier New',monospace;touc
   <div class="hud-block"><div class="hud-label">Steps</div><div class="hud-value" id="hudSt">0</div></div>
 </div>
 <div id="monsterBar"></div>
+<div id="keyHud">🔑</div>
+<div id="hint"></div>
 <div id="perf">
   <div><span class="lb">FPS</span><span class="pv" id="pFps">--</span> <span id="pMs" style="opacity:.55"></span></div>
   <div><span class="lb">최저</span><span class="pv" id="pMin">--</span> <span style="opacity:.45;font-size:10px">worst</span></div>
@@ -172,13 +185,13 @@ window.addEventListener('unhandledrejection', function(e){
 import * as THREE from 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.module.js';
 import { CELL,WALL_H,MAZE_MIN,MAZE_MAX,MAZE_STEP,mazeSizeFor,
          PLAYER_R,PLAYER_SPD,TURN_SPD,ACCEL,FRIC,
-         MON_COUNT,MON_BASE_SPD,MON_SPD_INC,MON_SIGHT_R,MON_HEAR_R,MON_KILL_R,
+         MON_COUNT,MON_BASE_SPD,MON_SPD_INC,MON_SIGHT_R,MON_HEAR_R,MON_KILL_R,KEY_PICK_R,
          CHARGE_TIME,CHARGE_BOOST,SNARL_MIN,SNARL_VAR } from './js/constants.js';
 import { QUALITY_PRESETS,QKEY,QNAME,Q,isMobile,detectQuality } from './js/quality.js';
 import { generateMaze,bfsDistances,bfsNext,hasLOS } from './js/maze.js';
 import { makeDungeonWall,makeDungeonFloor,makeDungeonCeil,makeFleshTex } from './js/textures.js';
 import { unlockAudio,updateAudioListener,footstep,monsterStep,playGrowl,torchCrackle,
-         playShriek,heartbeat,playDeath,playEscape } from './js/audio.js';
+         playShriek,heartbeat,playDeath,playEscape,playKeyPickup,playLocked } from './js/audio.js';
 import { progress,loadProgress,markLevel,markEscape,resetRun } from './js/save.js';
 
 // MW/MH는 레벨마다 재할당되므로 main이 소유한다 (ES 모듈은 import한 바인딩에 대입할 수 없다)
@@ -260,6 +273,17 @@ function jointLimb(geo,len,parent,x,y,z){
   return pivot;
 }
 
+// ── 열쇠·문 지오메트리 ── (레벨마다 재사용)
+const mKey  =mkMat({color:0xffcc44,emissive:0xffaa22,emissiveIntensity:2.2,roughness:.35,metalness:.8});
+const mDoor =mkMat({color:0x4a4038,roughness:.85,metalness:.35,emissive:0x120c06,emissiveIntensity:.4});
+const mLock =mkMat({color:0xb08840,emissive:0x6a4a10,emissiveIntensity:1.1,roughness:.4,metalness:.9});
+const gKeyRing =new THREE.TorusGeometry(.085,.026,6,14);
+const gKeyShaft=new THREE.CylinderGeometry(.021,.021,.24,6);
+const gKeyTooth=new THREE.BoxGeometry(.055,.038,.021);
+const gDoorSlab=new THREE.BoxGeometry(1.18,2.0,.14);
+const gLockBody=new THREE.BoxGeometry(.19,.17,.09);
+const gLockShkl=new THREE.TorusGeometry(.068,.021,6,12,Math.PI);
+
 // ── PLAYER ──
 const P={x:CELL,z:CELL,yaw:0,targetYaw:0,vx:0,vz:0,spd:0};
 const bob={phase:0,y:0,roll:0};
@@ -332,7 +356,12 @@ const torchData=[];              // {x,y,z,phase}
 const torchLightPool=[];         // 재사용되는 실제 PointLight (개수 = MAX_TORCH_LIGHTS)
 let MAX_TORCH_LIGHTS=Q.torchLights;   // ★ 품질 프리셋이 정함 (LOW 2 / MED 3 / HIGH 4 / ULTRA 6)
 const TORCH_RANGE=Q.torchRange;  // 광원 유효 반경 (이 밖은 어차피 기여 0). 광원이 적을수록 넓힌다
-let cachedPortal=null,cachedExitLight=null;
+let cachedPortal=null,cachedExitLight=null,cachedExitRing=null;
+// ── 열쇠와 잠긴 문 ──
+// 문은 출구 자체다. 미로 중간에 두면 열쇠가 문 뒤에 갇히지 않는지 매번 검사해야 하는데,
+// 출구를 잠그면 그 문제가 사라지고(문 앞은 언제나 전부 도달 가능) 규칙도 명확해진다.
+let hasKey=false, keyPos={x:1,z:1};
+let keyMesh=null, doorGroup=null;
 function isWall(gx,gz){if(gx<0||gz<0||gx>=MW||gz>=MH)return true;return mazeGrid[gz][gx]===0;}
 function addO(o){scene.add(o);worldObjs.push(o);return o;}
 
@@ -474,17 +503,57 @@ function buildWorld(){
   for(const[lists,mat] of [[walls,mWall],[floors,mFloor],[ceils,mCeil],[brack,mBrack],[glow,mTorchGlow]])
     for(const list of lists)
       if(list.length) addO(new THREE.Mesh(mergeParts(list),mat));
+  // ── 출구 ── 열린 포탈과 잠긴 문을 함께 만들고 열쇠 소지 여부로 전환한다
+  const ex=exitPos.x*CELL, ez=exitPos.z*CELL;
   const ep=addO(new THREE.Mesh(new THREE.BoxGeometry(1.1,1.9,.12),mExit));
-  ep.position.set(exitPos.x*CELL,WALL_H/2-.3,exitPos.z*CELL);ep.userData.isPortal=true;
+  ep.position.set(ex,WALL_H/2-.3,ez);ep.userData.isPortal=true;
   cachedPortal=ep;
   const el=new THREE.PointLight(0x00ff88,5,CELL*1.5,2);
-  el.position.set(exitPos.x*CELL,1.2,exitPos.z*CELL);el.userData.isExitLight=true;addO(el);
+  el.position.set(ex,1.2,ez);el.userData.isExitLight=true;addO(el);
   cachedExitLight=el;
   const ring=addO(new THREE.Mesh(new THREE.RingGeometry(.6,.76,24),
     mkMat({color:0x00ff88,emissive:0x00ff88,emissiveIntensity:2,side:THREE.DoubleSide})));
-  ring.rotation.x=-Math.PI/2;ring.position.set(exitPos.x*CELL,.015,exitPos.z*CELL);
+  ring.rotation.x=-Math.PI/2;ring.position.set(ex,.015,ez);
+  cachedExitRing=ring;
+
+  // 잠긴 문 — 뚫린 쪽을 향하도록 세운다 (돌아가지 않는다. 문이 빙빙 돌면 우습다)
+  doorGroup=new THREE.Group();
+  const slab=new THREE.Mesh(gDoorSlab,mDoor); slab.position.y=1.0; doorGroup.add(slab);
+  const lockBody=new THREE.Mesh(gLockBody,mLock); lockBody.position.set(0,1.02,.10); doorGroup.add(lockBody);
+  const shackle=new THREE.Mesh(gLockShkl,mLock); shackle.position.set(0,1.13,.10); doorGroup.add(shackle);
+  doorGroup.position.set(ex,0,ez);
+  for(const[dx,dz]of[[0,-1],[1,0],[0,1],[-1,0]]){
+    if(!isWall(exitPos.x+dx,exitPos.z+dz)){doorGroup.rotation.y=Math.atan2(dx,dz);break;}
+  }
+  addO(doorGroup);
+
+  // ── 열쇠 ── 시작 지점에서 충분히 떨어진 길 칸에 둔다
+  keyMesh=new THREE.Group();
+  const kr=new THREE.Mesh(gKeyRing,mKey);   kr.position.y=.10; keyMesh.add(kr);
+  const ks=new THREE.Mesh(gKeyShaft,mKey);  ks.position.y=-.07; keyMesh.add(ks);
+  const kt1=new THREE.Mesh(gKeyTooth,mKey); kt1.position.set(.036,-.145,0); keyMesh.add(kt1);
+  const kt2=new THREE.Mesh(gKeyTooth,mKey); kt2.position.set(.036,-.075,0); keyMesh.add(kt2);
+  keyMesh.position.set(keyPos.x*CELL,1.0,keyPos.z*CELL);
+  addO(keyMesh);
+
+  applyKeyState();
 
   initTorchLightPool();   // 횃불 광원 풀 생성 (개수 고정)
+}
+
+// 열쇠 소지 여부를 화면에 반영. 광원 "개수"는 건드리지 않고 세기·색만 바꾼다.
+function applyKeyState(){
+  if(doorGroup) doorGroup.visible=!hasKey;
+  if(cachedPortal) cachedPortal.visible=hasKey;
+  if(keyMesh) keyMesh.visible=!hasKey;
+  // 바닥 링은 계속 보이되 색으로 상태를 알린다 — 잠김 호박색 / 열림 초록
+  if(cachedExitRing){
+    const c=hasKey?0x00ff88:0xffaa33;
+    cachedExitRing.material.color.setHex(c);
+    cachedExitRing.material.emissive.setHex(c);
+  }
+  const k=document.getElementById('keyHud');
+  if(k) k.classList.toggle('on',hasKey);
 }
 
 // ── COLLISION ──
@@ -800,10 +869,6 @@ function mmDrawNewCells(){
     mtCtx.fillRect(c*cw,r*ch,cw,ch);
   }
   _mmNew.length=0;
-  if(visited[exitPos.z]&&visited[exitPos.z][exitPos.x]){
-    mtCtx.fillStyle='#0f8';mtCtx.shadowColor='#0f8';mtCtx.shadowBlur=5;
-    mtCtx.fillRect(exitPos.x*cw+1,exitPos.z*ch+1,cw-2,ch-2);mtCtx.shadowBlur=0;
-  }
 }
 
 function drawMM(){
@@ -812,6 +877,19 @@ function drawMM(){
   const cw=MM/MW,ch=MM/MH;
   mc.clearRect(0,0,MM,MM);
   mc.drawImage(mmTerrain,0,0); // 캐싱된 지형을 그대로 복사
+
+  // 출구 — 잠겨 있으면 호박색, 열쇠를 얻으면 초록. 지형 레이어가 아니라 여기서
+  // 그려야 상태가 바뀔 때 지형을 통째로 다시 그리지 않아도 된다.
+  if(visited[exitPos.z]&&visited[exitPos.z][exitPos.x]){
+    mc.fillStyle=hasKey?'#0f8':'#fa3';mc.shadowColor=hasKey?'#0f8':'#fa3';mc.shadowBlur=5;
+    mc.fillRect(exitPos.x*cw+1,exitPos.z*ch+1,cw-2,ch-2);mc.shadowBlur=0;
+  }
+  // 열쇠 — 아직 안 주웠고 그 칸을 밝혔을 때만
+  if(!hasKey&&visited[keyPos.z]&&visited[keyPos.z][keyPos.x]){
+    mc.fillStyle='#fd6';mc.shadowColor='#fd6';mc.shadowBlur=6;
+    mc.beginPath();mc.arc(keyPos.x*cw+cw/2,keyPos.z*ch+ch/2,Math.max(cw,ch)*.55,0,Math.PI*2);
+    mc.fill();mc.shadowBlur=0;
+  }
 
   for(const m of monsters){
     if(!visited[m.gz]||!visited[m.gz][m.gx])continue;
@@ -828,6 +906,12 @@ function drawMM(){
 }
 
 // ── HUD HELPERS ──
+let _lastLocked=-99, _hintT=null;
+function showHint(msg){
+  const e=document.getElementById('hint');
+  e.textContent=msg; e.classList.add('on');
+  clearTimeout(_hintT); _hintT=setTimeout(()=>e.classList.remove('on'),1800);
+}
 function flashSpot(){const e=document.getElementById('spotFlash');e.style.opacity='1';setTimeout(()=>e.style.opacity='0',130);}
 function updateDanger(){
   let d=Infinity;for(const m of monsters)d=Math.min(d,m.distToPlayer());
@@ -890,10 +974,22 @@ function startLevel(lv){
   }
   P.targetYaw=P.yaw;
   bob.phase=0;bob.y=0;bob.roll=0;
+  // 플레이어 기준 거리 맵을 한 번만 구해 열쇠·몬스터 배치에 재사용
+  // 열쇠는 시작 지점에서 충분히 떨어진 칸에. 출구는 잠겨 있으므로 미로 전체가
+  // 언제나 도달 가능하고, 따라서 "열쇠가 문 뒤에 갇히는" 상황이 생기지 않는다.
+  // ⚠ buildWorld()가 keyPos를 읽어 열쇠 메시를 놓으므로 반드시 그 앞에서 정한다.
+  const pDist=bfsDistances(mazeGrid,MW,MH,start[0],start[1]).slice();
+  hasKey=false;
+  {
+    let far=0;
+    for(const[c,r]of pathCells){const d=pDist[r*MW+c]; if(d>far)far=d;}
+    const cand=pathCells.filter(([c,r])=>
+      pDist[r*MW+c]>=far*0.45 && !(c===exit[0]&&r===exit[1]));
+    const k=cand.length?cand[(Math.random()*cand.length)|0]:start;
+    keyPos={x:k[0],z:k[1]};
+  }
   buildWorld();initVisited();updateVisibility();drawMM();
   const cnt=MON_COUNT(lv),spd=MON_BASE_SPD*(1+MON_SPD_INC*(lv-1));
-  // 플레이어 기준 거리 맵을 한 번만 구해 모든 몬스터 배치에 재사용
-  const pDist=bfsDistances(mazeGrid,MW,MH,start[0],start[1]).slice();
   const minSpawn=Math.max(8,Math.floor(MW*0.35));
   for(let i=0;i<cnt;i++){const[gx,gz]=findSpawn(pDist,minSpawn);monsters.push(new Monster(gx,gz,spd));}
   updateMonBar(cnt);
@@ -1115,7 +1211,18 @@ function animate(){
       // death check
       for(const m of monsters)if(m.distToPlayer()<MON_KILL_R){onDeath();return;}
       // exit check
-      if(Math.round(P.x/CELL)===exitPos.x&&Math.round(P.z/CELL)===exitPos.z){onEscape();return;}
+      // 출구 도달 — 열쇠가 없으면 잠긴 문에 막힌다
+      if(Math.round(P.x/CELL)===exitPos.x&&Math.round(P.z/CELL)===exitPos.z){
+        if(hasKey){onEscape();return;}
+        else if(t-_lastLocked>1.2){_lastLocked=t;playLocked();showHint('잠겨 있다 — 열쇠를 찾아라');}
+      }
+      // 열쇠 획득
+      if(!hasKey){
+        const kdx=keyPos.x*CELL-P.x, kdz=keyPos.z*CELL-P.z;
+        if(kdx*kdx+kdz*kdz < KEY_PICK_R*KEY_PICK_R){
+          hasKey=true;applyKeyState();playKeyPickup();showHint('열쇠를 손에 넣었다');
+        }
+      }
       updateVisibility();
       if((mmTick++%Q.mmInterval)===0)drawMM();
       updateDanger();
@@ -1157,11 +1264,17 @@ function animate(){
       fl.scale.z=1+Math.sin(t*11+fl.position.z)*.12;
       fl.scale.y=1+Math.sin(t*6+fl.position.z)*.18;
     }
+    if(keyMesh&&keyMesh.visible){
+      keyMesh.rotation.y=t*1.6;
+      keyMesh.position.y=1.0+Math.sin(t*2.2)*.075;
+    }
     // 캐싱된 portal/exitLight 직접 참조
     if(cachedPortal){cachedPortal.rotation.y=t*.8;cachedPortal.material.emissiveIntensity=1.2+Math.sin(t*2.8)*.6;}
     if(cachedExitLight){
       const dxE=exitPos.x*CELL-P.x, dzE=exitPos.z*CELL-P.z;
       cachedExitLight.intensity=((dxE*dxE+dzE*dzE)<6*6) ? 4+Math.sin(t*3)*1.5 : 0;
+      // 색만 바꾼다 — 광원 개수는 그대로여야 셰이더 재컴파일이 없다
+      cachedExitLight.color.setHex(hasKey?0x00ff88:0xffaa33);
     }
     renderer.render(scene,camera);
     // renderer.info.render는 render() 시작 시 리셋되므로 반드시 렌더 직후에 읽어야 함
