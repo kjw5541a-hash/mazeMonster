@@ -39,16 +39,20 @@ body{background:#080a10;overflow:hidden;font-family:'Courier New',monospace;touc
 #danger{position:fixed;inset:0;pointer-events:none;z-index:6;opacity:0;background:radial-gradient(ellipse at center,transparent 40%,rgba(180,0,0,.65) 100%);transition:opacity .25s;}
 /* z-index는 반드시 #perfToggle(31)보다 높아야 한다. 낮으면 화면이 짧은 가로모드에서
    성능 패널의 투명 터치판이 십자키 위에 겹쳐 버튼 입력을 통째로 삼킨다. */
-#controls{position:fixed;bottom:0;left:0;right:0;height:160px;display:flex;justify-content:space-between;align-items:flex-end;padding:0 20px 20px;z-index:35;pointer-events:none;}
-#dpad{display:grid;grid-template-columns:repeat(3,44px);grid-template-rows:repeat(3,44px);gap:4px;flex-shrink:0;pointer-events:all;}
-.dbtn{display:flex;align-items:center;justify-content:center;border-radius:8px;
-      background:rgba(255,160,60,.08);border:1px solid rgba(255,140,40,.3);
-      font-size:18px;color:rgba(255,170,60,.7);-webkit-tap-highlight-color:transparent;
-      transition:background .08s,box-shadow .08s;}
-.dbtn.active{background:rgba(255,150,50,.32);box-shadow:0 0 14px rgba(255,120,30,.6);}
-.dbtn-empty{visibility:hidden;}
-#lZone{width:150px;height:130px;border-radius:12px;background:rgba(255,100,30,.04);border:1px solid rgba(255,100,30,.18);display:flex;align-items:center;justify-content:center;pointer-events:all;flex-shrink:0;}
-.lhint{font-size:9px;letter-spacing:2px;color:rgba(255,140,40,.45);text-transform:uppercase;}
+/* 좌: 이동(플로팅 스틱), 우: 시선. 둘 다 보이지 않는 터치 영역이다.
+   z-index는 화면 오버레이(.screen=100)보다 낮고 #perfToggle(31)보다도 낮아야 한다 —
+   대신 #touchL을 성능 패널 아래에서 시작시켜 애초에 겹치지 않게 한다. */
+#touchL,#touchR{position:fixed;bottom:0;z-index:15;pointer-events:all;touch-action:none;}
+#touchL{left:0;width:50%;top:272px;}
+#touchR{right:0;width:50%;top:0;}
+/* 플로팅 스틱 — 누른 자리에 나타나고 떼면 사라진다 */
+#stick{position:fixed;z-index:16;pointer-events:none;width:112px;height:112px;margin:-56px 0 0 -56px;
+       border:2px solid rgba(255,160,60,.30);border-radius:50%;background:rgba(255,140,40,.05);
+       opacity:0;transition:opacity .13s;}
+#stick.on{opacity:1;}
+#stickKnob{position:absolute;left:50%;top:50%;width:48px;height:48px;margin:-24px 0 0 -24px;
+           border-radius:50%;background:rgba(255,150,50,.26);border:1px solid rgba(255,175,80,.45);
+           box-shadow:0 0 12px rgba(255,120,30,.35);}
 .screen{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,.92);z-index:100;gap:16px;transition:opacity .35s;}
 .screen.hidden{opacity:0;pointer-events:none;}
 .stitle{font-size:38px;font-weight:900;letter-spacing:6px;color:#ff6622;text-shadow:0 0 18px #ff4400,0 0 40px #ff220055;animation:flicker 5s infinite;}
@@ -71,9 +75,7 @@ body{background:#080a10;overflow:hidden;font-family:'Courier New',monospace;touc
 /* 가로모드 — 세로 높이가 짧을 때. 세로 기준으로 짜인 고정 크기들이 화면을 다 잡아먹는다.
    (iPhone 가로는 대략 390~430px 높이) */
 @media (max-height:520px){
-  #controls{height:126px;padding:0 14px 10px;}
-  #dpad{grid-template-columns:repeat(3,40px);grid-template-rows:repeat(3,40px);gap:3px;}
-  #lZone{width:170px;height:104px;}
+  #touchL{top:178px;}          /* 가로에서는 성능 패널이 y=170에서 끝난다 */
   #hud{padding:6px 16px;}
   .hud-value{font-size:15px;}
   .hud-label{font-size:8px;letter-spacing:2px;}
@@ -117,26 +119,15 @@ body{background:#080a10;overflow:hidden;font-family:'Courier New',monospace;touc
 </div>
 <div id="perfToggle"></div>
 <canvas id="mmCanvas" width="110" height="110"></canvas>
-<div id="controls">
-  <div id="dpad">
-    <div class="dbtn dbtn-empty"></div>
-    <div class="dbtn" id="btnFwd">▲</div>
-    <div class="dbtn dbtn-empty"></div>
-    <div class="dbtn" id="btnLeft">◀</div>
-    <div class="dbtn dbtn-empty"></div>
-    <div class="dbtn" id="btnRight">▶</div>
-    <div class="dbtn dbtn-empty"></div>
-    <div class="dbtn" id="btnBack">▼</div>
-    <div class="dbtn dbtn-empty"></div>
-  </div>
-  <div id="lZone"><span class="lhint">◁ swipe ▷</span></div>
-</div>
+<div id="touchL"></div>
+<div id="touchR"></div>
+<div id="stick"><div id="stickKnob"></div></div>
 <div id="spotFlash"></div>
 <div id="flash"></div>
 <div class="screen" id="titleScreen">
   <div class="stitle">DUNGEON ESCAPE</div>
   <div class="ssub">괴물을 피해 탈출하라</div>
-  <div class="ssub" style="font-size:9px;opacity:.5;margin-top:4px">LEFT:십자키(전후/횡이동) RIGHT:스와이프 회전 WASD</div>
+  <div class="ssub" style="font-size:9px;opacity:.5;margin-top:4px">왼쪽 끌기 = 이동 (살살 밀면 소리가 안 남) · 오른쪽 문지르기 = 시선 · WASD</div>
   <button class="sbtn" id="startBtn">START</button>
   <div class="ssub" style="font-size:9px;opacity:.55;margin-top:6px">QUALITY</div>
   <div id="qbar"></div>
@@ -486,29 +477,56 @@ const KM={ArrowUp:'f',w:'f',W:'f',ArrowDown:'b',s:'b',S:'b',ArrowLeft:'tL',a:'tL
 document.addEventListener('keydown',e=>{const k=KM[e.key];if(k){K[k]=1;e.preventDefault();}});
 document.addEventListener('keyup',  e=>{const k=KM[e.key];if(k)K[k]=0;});
 
-// ── D-PAD (좌측) — 전진/후진 + 좌우 횡이동 ──
-let jFwd=0, dSide=0; // jFwd: 전진 버튼=-1, 후진 버튼=1 (게임 루프에서 -jFwd로 반전해 사용) / dSide: -1(좌횡이동)~1(우횡이동)
-function bindDPad(id, onDown, onUp){
-  const el=document.getElementById(id);
-  el.addEventListener('touchstart',e=>{e.preventDefault();el.classList.add('active');onDown();},{passive:false});
-  el.addEventListener('touchend',  e=>{e.preventDefault();el.classList.remove('active');onUp();},{passive:false});
-  el.addEventListener('touchcancel',e=>{e.preventDefault();el.classList.remove('active');onUp();},{passive:false});
-  // 데스크톱 테스트용 마우스 지원
-  el.addEventListener('mousedown',()=>{el.classList.add('active');onDown();});
-  el.addEventListener('mouseup',  ()=>{el.classList.remove('active');onUp();});
-  el.addEventListener('mouseleave',()=>{el.classList.remove('active');onUp();});
-}
-bindDPad('btnFwd',  ()=>jFwd=-1, ()=>{if(jFwd===-1)jFwd=0;});
-bindDPad('btnBack',  ()=>jFwd=1,  ()=>{if(jFwd===1)jFwd=0;});
-bindDPad('btnLeft', ()=>dSide=-1,()=>{if(dSide===-1)dSide=0;});
-bindDPad('btnRight',()=>dSide=1, ()=>{if(dSide===1)dSide=0;});
+// ── 좌측: 플로팅 아날로그 스틱 (이동) ──
+// jFwd는 전진이 -1, dSide는 우횡이동이 +1 (게임 루프의 기존 규약 그대로).
+// 소수값을 그대로 넣으면 이동 계산식이 알아서 비례 속도를 만든다 — 살살 밀면
+// 속도가 몬스터 청각 문턱(1.5) 아래로 내려가 잠입이 된다.
+let jFwd=0, dSide=0;
+const STICK_R=52, STICK_DEAD=6;
+const stickEl=document.getElementById('stick'), knobEl=document.getElementById('stickKnob');
+const touchL=document.getElementById('touchL');
+let sId=-1, sBaseX=0, sBaseY=0;
 
-// ── LOOK ZONE (우측) — 좌우 스와이프로 회전 (원래 방식으로 복귀) ──
-const lZone=document.getElementById('lZone');
+function stickStart(t){
+  sId=t.identifier; sBaseX=t.clientX; sBaseY=t.clientY;
+  stickEl.style.left=sBaseX+'px'; stickEl.style.top=sBaseY+'px';
+  knobEl.style.transform='translate(0px,0px)';
+  stickEl.classList.add('on');
+}
+function stickMove(t){
+  let dx=t.clientX-sBaseX, dy=t.clientY-sBaseY;
+  const d=Math.hypot(dx,dy);
+  // 원형 클램프 — 이게 없으면 대각선이 √2배 빨라진다 (십자키 시절의 버그)
+  if(d>STICK_R){dx=dx/d*STICK_R; dy=dy/d*STICK_R;}
+  knobEl.style.transform=`translate(${dx}px,${dy}px)`;
+  const m=Math.hypot(dx,dy);
+  if(m<STICK_DEAD){jFwd=0;dSide=0;return;}
+  // 데드존 바깥을 0~1로 다시 펴서 문턱을 넘는 순간 튀지 않게 한다
+  const k=(m-STICK_DEAD)/((STICK_R-STICK_DEAD)*m);
+  jFwd=dy*k; dSide=dx*k;
+}
+function stickEnd(){sId=-1;jFwd=0;dSide=0;stickEl.classList.remove('on');}
+
+touchL.addEventListener('touchstart',e=>{e.preventDefault();
+  if(sId===-1) stickStart(e.changedTouches[0]);},{passive:false});
+touchL.addEventListener('touchmove',e=>{e.preventDefault();
+  for(const t of e.changedTouches) if(t.identifier===sId) stickMove(t);},{passive:false});
+// touchcancel까지 반드시 잡아야 한다 — 놓치면 손을 뗐는데 계속 걸어간다
+for(const ev of ['touchend','touchcancel'])
+  touchL.addEventListener(ev,e=>{
+    for(const t of e.changedTouches) if(t.identifier===sId) stickEnd();},{passive:false});
+
+// ── 우측: 시선 회전 ──
+// 작은 상자가 아니라 우측 절반 전체. 감도 0.011은 사용자가 조정한 값이므로 유지.
+const touchR=document.getElementById('touchR');
 let lId=-1, lLastX=0;
-lZone.addEventListener('touchstart',e=>{e.preventDefault();const t=e.changedTouches[0];lId=t.identifier;lLastX=t.clientX;},{passive:false});
-lZone.addEventListener('touchmove', e=>{e.preventDefault();for(const t of e.changedTouches)if(t.identifier===lId){P.yaw-=(t.clientX-lLastX)*0.011;lLastX=t.clientX;}},{passive:false});
-lZone.addEventListener('touchend',  e=>{for(const t of e.changedTouches)if(t.identifier===lId)lId=-1;},{passive:false});
+touchR.addEventListener('touchstart',e=>{e.preventDefault();
+  if(lId===-1){const t=e.changedTouches[0];lId=t.identifier;lLastX=t.clientX;}},{passive:false});
+touchR.addEventListener('touchmove',e=>{e.preventDefault();
+  for(const t of e.changedTouches) if(t.identifier===lId){P.yaw-=(t.clientX-lLastX)*0.011;lLastX=t.clientX;}},{passive:false});
+for(const ev of ['touchend','touchcancel'])
+  touchR.addEventListener(ev,e=>{
+    for(const t of e.changedTouches) if(t.identifier===lId) lId=-1;},{passive:false});
 
 // ── WORLD ──
 let mazeGrid=[],exitPos={x:MW-2,z:MH-2};
@@ -1582,7 +1600,7 @@ function animate(){
   const t=clock.elapsedTime;
   try{
     if(gameActive){
-      // player move — 회전은 우측 스와이프에서 직접 P.yaw를 갱신(위 lZone 리스너), 키보드 좌우도 함께 반영
+      // player move — 회전은 우측 시선 영역에서 직접 P.yaw를 갱신(위 touchR 리스너), 키보드 좌우도 함께 반영
       P.yaw+=(K.tL-K.tR)*TURN_SPD*dt;
 
       const fwd=-(K.f-K.b)+(-jFwd);
