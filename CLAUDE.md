@@ -14,7 +14,7 @@
 ```
 index.html          게임 전체 (약 1,450줄) — HTML + CSS + JS 단일 파일
 manifest.json       PWA 매니페스트
-sw.js               Service Worker (캐시명 dungeon-escape-v12)
+sw.js               Service Worker (캐시명 dungeon-escape-v13)
 icon-192.svg        아이콘
 icon-512.svg        아이콘
 README.md

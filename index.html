@@ -37,7 +37,9 @@ body{background:#080a10;overflow:hidden;font-family:'Courier New',monospace;touc
             pointer-events:all;background:transparent;}
 #vig{position:fixed;inset:0;pointer-events:none;z-index:5;background:radial-gradient(ellipse at center,transparent 50%,rgba(0,0,0,.78) 100%);}
 #danger{position:fixed;inset:0;pointer-events:none;z-index:6;opacity:0;background:radial-gradient(ellipse at center,transparent 40%,rgba(180,0,0,.65) 100%);transition:opacity .25s;}
-#controls{position:fixed;bottom:0;left:0;right:0;height:160px;display:flex;justify-content:space-between;align-items:flex-end;padding:0 20px 20px;z-index:20;pointer-events:none;}
+/* z-index는 반드시 #perfToggle(31)보다 높아야 한다. 낮으면 화면이 짧은 가로모드에서
+   성능 패널의 투명 터치판이 십자키 위에 겹쳐 버튼 입력을 통째로 삼킨다. */
+#controls{position:fixed;bottom:0;left:0;right:0;height:160px;display:flex;justify-content:space-between;align-items:flex-end;padding:0 20px 20px;z-index:35;pointer-events:none;}
 #dpad{display:grid;grid-template-columns:repeat(3,44px);grid-template-rows:repeat(3,44px);gap:4px;flex-shrink:0;pointer-events:all;}
 .dbtn{display:flex;align-items:center;justify-content:center;border-radius:8px;
       background:rgba(255,160,60,.08);border:1px solid rgba(255,140,40,.3);
@@ -66,6 +68,26 @@ body{background:#080a10;overflow:hidden;font-family:'Courier New',monospace;touc
 .qbtn.on{border-color:#ff6622;color:#ff6622;background:rgba(255,80,0,.15);box-shadow:0 0 8px rgba(255,80,0,.35);}
 .qnote{font-size:8px;letter-spacing:1px;color:rgba(255,160,60,.42);}
 @keyframes flicker{0%,93%,100%{opacity:1}94%{opacity:.5}95%{opacity:1}97%{opacity:.3}}
+/* 가로모드 — 세로 높이가 짧을 때. 세로 기준으로 짜인 고정 크기들이 화면을 다 잡아먹는다.
+   (iPhone 가로는 대략 390~430px 높이) */
+@media (max-height:520px){
+  #controls{height:126px;padding:0 14px 10px;}
+  #dpad{grid-template-columns:repeat(3,40px);grid-template-rows:repeat(3,40px);gap:3px;}
+  #lZone{width:170px;height:104px;}
+  #hud{padding:6px 16px;}
+  .hud-value{font-size:15px;}
+  .hud-label{font-size:8px;letter-spacing:2px;}
+  #monsterBar{top:44px;}
+  #mmCanvas{bottom:132px;width:84px;height:84px;}
+  #perf{top:52px;font-size:10px;line-height:1.45;padding:5px 8px;min-width:132px;}
+  #perf .lb{width:42px;}
+  #perf .hint{display:none;}
+  #perfToggle{top:52px;width:136px;height:118px;}
+  .stitle{font-size:26px;letter-spacing:4px;}
+  .screen{gap:8px;}
+  .sbtn{margin-top:6px;padding:9px 34px;font-size:13px;}
+  .badge{font-size:34px;}
+}
 </style>
 </head>
 <body>
