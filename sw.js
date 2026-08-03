@@ -1,8 +1,13 @@
-const CACHE = 'dungeon-escape-v14';
+const CACHE = 'dungeon-escape-v15';
 const ASSETS = [
   './',
   './index.html',
   './manifest.json',
+  './js/constants.js',
+  './js/quality.js',
+  './js/maze.js',
+  './js/textures.js',
+  './js/audio.js',
   'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.module.js',
 ];
 

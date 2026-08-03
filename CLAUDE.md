@@ -1,7 +1,7 @@
 # DUNGEON ESCAPE — 프로젝트 컨텍스트
 
 3D 던전 탈출 호러 게임. 브라우저에서 동작하는 PWA.
-바닐라 JS + Three.js r128, **빌드 도구 없이 단일 HTML 파일**로 구성.
+바닐라 JS + Three.js r128, **빌드 도구 없이** 네이티브 ES 모듈로 구성.
 
 - 저장소: `mazeMonster`
 - 배포: GitHub Pages (`.github/workflows/deploy.yml` — main push 시 자동 배포)
@@ -12,9 +12,14 @@
 ## 파일 구조
 
 ```
-index.html          게임 전체 (약 1,450줄) — HTML + CSS + JS 단일 파일
+index.html          HTML + CSS + 메인 스크립트 (약 1,140줄)
+js/constants.js     밸런스·치수 상수
+js/quality.js       품질 프리셋·자동 감지
+js/maze.js          미로 생성 + BFS/LOS
+js/textures.js      캔버스 텍스처 생성
+js/audio.js         공간 오디오 전체
 manifest.json       PWA 매니페스트
-sw.js               Service Worker (캐시명 dungeon-escape-v14)
+sw.js               Service Worker (캐시명 dungeon-escape-v15)
 icon-192.svg        아이콘
 icon-512.svg        아이콘
 README.md
@@ -206,6 +211,27 @@ r128의 `BufferGeometryUtils`는 `examples/` 쪽이라 코어 모듈에 없습�
 > **실기기(아이폰) 실측 결과 HIGH 프리셋에서 41×41이 59~60fps로 상한을 유지합니다.**
 > 삼각형 1만 개는 GPU에게 사실상 공짜이고, 줄어든 draw call·객체 수만 이득으로 남습니다.
 > 앞으로도 지오메트리 양이 걸린 판단은 **반드시 실기기 수치로 확정하십시오.**
+
+---
+
+## 모듈 구성
+
+**빌드 도구는 여전히 없습니다.** 브라우저 네이티브 ES 모듈이라 `<script type="module">`이
+그대로 `./js/*.js`를 불러옵니다.
+
+분리 기준은 **공유 가변 상태가 없는 것부터**입니다. `MW`/`MH`/`mazeGrid`/`P`처럼 매 레벨
+바뀌고 여러 곳이 함께 읽는 상태는 **`index.html`(main)이 소유**합니다.
+ES 모듈은 `import`한 바인딩에 대입할 수 없어서, 이런 상태를 모듈로 옮기면 전부
+객체 프로퍼티나 setter로 바꾸는 대규모 재작성이 필요합니다. 테스트가 없는 상태에서
+그 작업은 위험 대비 이득이 없습니다.
+
+그래서 `maze.js`의 BFS/LOS는 **`(grid, MW, MH, ...)`를 인자로 받습니다.**
+`textures.js`는 `anisotropy`를, `audio.js`의 리스너 동기화는 플레이어 좌표를 인자로 받습니다.
+
+> 몬스터·월드 빌드·게임 루프는 공유 상태 의존이 커서 main에 남겼습니다.
+> 더 쪼개려면 상태 소유 구조부터 바꿔야 합니다.
+
+**파일을 추가하면 `sw.js`의 `ASSETS` 목록에 반드시 넣으십시오.** 빠지면 오프라인에서 깨집니다.
 
 ---
 
