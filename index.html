@@ -189,8 +189,8 @@ import { CELL,WALL_H,MAZE_MIN,MAZE_MAX,MAZE_STEP,mazeSizeFor,
          CHARGE_TIME,CHARGE_BOOST,SNARL_MIN,SNARL_VAR } from './js/constants.js';
 import { QUALITY_PRESETS,QKEY,QNAME,Q,isMobile,detectQuality } from './js/quality.js';
 import { generateMaze,bfsDistances,bfsNext,hasLOS } from './js/maze.js';
-import { makeDungeonWall,makeDungeonFloor,makeDungeonCeil,makeFleshTex } from './js/textures.js';
-import { unlockAudio,updateAudioListener,footstep,monsterStep,playGrowl,torchCrackle,
+import { makeWallpaper,makeCarpet,makeDropCeiling,makeFleshTex } from './js/textures.js';
+import { unlockAudio,updateAudioListener,footstep,monsterStep,playGrowl,panelBuzz,
          playShriek,heartbeat,playDeath,playEscape,playKeyPickup,playLocked } from './js/audio.js';
 import { progress,loadProgress,markLevel,markEscape,resetRun } from './js/save.js';
 
@@ -210,17 +210,24 @@ renderer.setSize(innerWidth,innerHeight);
 const MAX_ANISO=renderer.capabilities.getMaxAnisotropy();
 renderer.shadowMap.enabled=false;
 const scene=new THREE.Scene();
-scene.background=new THREE.Color(0x080a10);
-scene.fog=new THREE.FogExp2(0x080a10,0.058);
+// 안개 색은 "노란 안개"가 아니라 어두운 올리브다. 밝은 색으로 두면 천장등이 없는
+// 어두운 구역에서 원경이 오히려 환해져 어둠이 성립하지 않는다.
+// 백룸의 노란 인상은 근경의 벽지가 만들고, 원경은 참고 사진들처럼 어둠에 잠겨야 한다.
+const FOG_COLOR=0x272415;
+scene.background=new THREE.Color(FOG_COLOR);
+// 밀도는 던전 때 값을 그대로 둔다 — 가시거리 약 8~9칸이 MON_SIGHT_R=8과 맞물려
+// 난이도를 잡고 있다. 겉모습만 바꾸고 밸런스는 건드리지 않는다.
+scene.fog=new THREE.FogExp2(FOG_COLOR,0.058);
 const camera=new THREE.PerspectiveCamera(80,innerWidth/innerHeight,0.05,60);
 scene.add(camera);
-// AmbientLight는 픽셀당 광원 순회 비용이 없다 — 광원이 적은 프리셋의 암부를 메우는 데 쓴다
-scene.add(new THREE.AmbientLight(0x1a1e2a,Q.ambient));
+// AmbientLight는 픽셀당 광원 순회 비용이 없다 — 백룸은 밝기의 대부분을 여기서 가져온다.
+// 이 값이 "천장등이 없는 구역의 밝기"를 정한다. 칠흑이 아니라 어두운 황토색이어야 한다.
+scene.add(new THREE.AmbientLight(0x4a4740,Q.ambient));
 
 const ANISO=Q.aniso===0?MAX_ANISO:Math.min(Q.aniso,MAX_ANISO);
-const wallMap =makeDungeonWall(Q.texSize,ANISO);
-const floorMap=makeDungeonFloor(Q.texSize,ANISO);
-const ceilMap =makeDungeonCeil(Q.texSize,ANISO);
+const wallMap =makeWallpaper(Q.texSize,ANISO);
+const floorMap=makeCarpet(Q.texSize,ANISO);
+const ceilMap =makeDropCeiling(Q.texSize,ANISO);
 const fleshMap=makeFleshTex(Q.texSize,ANISO);
 
 // 재질 팩토리 — LOW/MEDIUM은 MeshPhongMaterial로 대체한다.
@@ -238,12 +245,20 @@ function mkMat(o){
   return new THREE.MeshPhongMaterial(p);
 }
 
-// 던전 색상 팔레트 — 청회색/슬레이트
-const mWall  =mkMat({map:wallMap, color:0x8892a4,roughness:.88,metalness:.06,emissive:0x05080f,emissiveIntensity:.25});
-const mFloor =mkMat({map:floorMap,color:0x555e6e,roughness:.95,metalness:.04,emissive:0x02040a,emissiveIntensity:.12});
-const mCeil  =mkMat({map:ceilMap, color:0x333844,roughness:.97,metalness:.02,emissive:0x010208,emissiveIntensity:.08});
-const mFlame  =mkMat({color:0xff8800,emissive:0xff6600,emissiveIntensity:3.5,transparent:true,opacity:.92});
-const mBrack  =mkMat({color:0x3a3a3a,roughness:.6,metalness:.7}); // 철 브래킷
+// 백룸 팔레트 — 색은 텍스처가 들고 있고 재질은 tint하지 않는다(0xffffff).
+// emissive를 주지 않는 이유: 밝아진 ambient와 겹치면 흰색으로 날아가 벽지 무늬가 사라진다.
+const mWall  =mkMat({map:wallMap, color:0xffffff,roughness:.92,metalness:.02});
+const mFloor =mkMat({map:floorMap,color:0xffffff,roughness:.98,metalness:.0});
+// 천장만 emissive를 준다. 천장등이 천장과 거의 같은 평면에 있어 입사각이 스치듯 들어가고
+// (N·L≈0) 그래서 조명을 사실상 못 받는다. 물리적으로는 맞지만 참고 사진의 흰 천장이 안 나온다.
+// 광원을 늘리지 않고 해결하는 축이라 최우선 규칙 1번에 걸리지 않는다.
+const mCeil  =mkMat({map:ceilMap, color:0xffffff,roughness:.90,metalness:.02,
+                     emissive:0xffffff,emissiveIntensity:.30});
+// 어두운 구역의 천장. 위 emissive를 그대로 쓰면 천장등이 하나도 없는 복도인데 천장만
+// 하얗게 빛나 어둠이 성립하지 않는다. 재질만 나누면 되고 광원 개수는 그대로다.
+const mCeilDark=mkMat({map:ceilMap, color:0x6e6a5c,roughness:.90,metalness:.02});
+// 형광판 — 광원이 아니라 발광 재질이다. 광원 개수를 늘리지 않고 "밝게 보이는" 축.
+const mPanel  =mkMat({color:0xffffff,emissive:0xfff6dc,emissiveIntensity:3.4});
 const mExit   =mkMat({color:0x00ff88,emissive:0x00ff88,emissiveIntensity:1.6,transparent:true,opacity:.88});
 const mMonBody=mkMat({map:fleshMap,color:0x8f8879,roughness:.93,emissive:0x120a08,emissiveIntensity:.28});
 const mMonFace=mkMat({color:0x15100f,roughness:1});   // 얼굴 자리의 움푹 팬 그늘
@@ -350,12 +365,23 @@ for(const ev of ['touchend','touchcancel'])
 
 // ── WORLD ──
 let mazeGrid=[],exitPos={x:MW-2,z:MH-2};
-const worldObjs=[],torchFlames=[];
-// 횃불 광원은 개별 생성하지 않고 "데이터"로만 보관 → 가장 가까운 N개만 실제 광원으로 배치
-const torchData=[];              // {x,y,z,phase}
-const torchLightPool=[];         // 재사용되는 실제 PointLight (개수 = MAX_TORCH_LIGHTS)
-let MAX_TORCH_LIGHTS=Q.torchLights;   // ★ 품질 프리셋이 정함 (LOW 2 / MED 3 / HIGH 4 / ULTRA 6)
-const TORCH_RANGE=Q.torchRange;  // 광원 유효 반경 (이 밖은 어차피 기여 0). 광원이 적을수록 넓힌다
+const worldObjs=[];
+// 천장등 광원은 개별 생성하지 않고 "데이터"로만 보관 → 가장 가까운 N개만 실제 광원으로 배치
+const panelData=[];              // {x,y,z,phase}
+const panelLightPool=[];         // 재사용되는 실제 PointLight (개수 = MAX_PANEL_LIGHTS)
+let MAX_PANEL_LIGHTS=Q.panelLights;   // ★ 품질 프리셋이 정함 (LOW 2 / MED 3 / HIGH 4 / ULTRA 6)
+const PANEL_RANGE=Q.panelRange;  // 광원 유효 반경 (이 밖은 어차피 기여 0). 광원이 적을수록 넓힌다
+
+// 어두운 구역 — 천장등이 죽은 구획. 칸 단위로 무작위하면 얼룩덜룩해질 뿐이라
+// DARK_BLOCK칸짜리 덩어리로 묶어 "복도 하나가 통째로 어둡다"가 되게 한다.
+// level을 섞어 레벨마다 배치가 달라지되, 같은 레벨 안에서는 결정적이다.
+const DARK_BLOCK=5, DARK_PCT=28;
+function isDarkZone(col,row){
+  const bx=(col/DARK_BLOCK)|0, bz=(row/DARK_BLOCK)|0;
+  let h=(bx*73856093)^(bz*19349663)^(level*83492791);
+  h=(h^(h>>>13))>>>0;
+  return h%100<DARK_PCT;
+}
 let cachedPortal=null,cachedExitLight=null,cachedExitRing=null;
 // ── 열쇠와 잠긴 문 ──
 // 문은 출구 자체다. 미로 중간에 두면 열쇠가 문 뒤에 갇히지 않는지 매번 검사해야 하는데,
@@ -366,37 +392,40 @@ function isWall(gx,gz){if(gx<0||gz<0||gx>=MW||gz>=MH)return true;return mazeGrid
 function addO(o){scene.add(o);worldObjs.push(o);return o;}
 
 // 광원 풀 생성 (씬에 상주, 레벨이 바뀌어도 재사용)
-function initTorchLightPool(){
-  for(const l of torchLightPool){scene.remove(l);}
-  torchLightPool.length=0;
-  for(let i=0;i<MAX_TORCH_LIGHTS;i++){
-    const l=new THREE.PointLight(0xff9933,0,TORCH_RANGE);
+function initPanelLightPool(){
+  for(const l of panelLightPool){scene.remove(l);}
+  panelLightPool.length=0;
+  for(let i=0;i<MAX_PANEL_LIGHTS;i++){
+    // 형광등 색. 횃불의 주황(0xff9933)을 그대로 두면 벽지의 노랑과 곱해져
+    // 형광 주황으로 타 버린다. 사무실 형광등 특유의 차갑고 살짝 초록빛 도는 흰색이어야
+    // 벽지가 "겨자색"으로 남는다.
+    const l=new THREE.PointLight(0xeef2e2,0,PANEL_RANGE);
     l.position.set(0,-999,0);   // 처음엔 씬 밖
     scene.add(l);
-    torchLightPool.push(l);
+    panelLightPool.push(l);
   }
 }
 
 // 매 프레임 호출: 플레이어에게 가장 가까운 횃불에 광원 풀을 배치
-let _torchUpdT=0;
-function updateTorchLights(dt,t){
-  _torchUpdT-=dt;
-  if(_torchUpdT>0) return;      // 프리셋별 주기마다만 재배치 (충분히 부드러움)
-  _torchUpdT=Q.torchInterval;
+let _panelUpdT=0;
+function updatePanelLights(dt,t){
+  _panelUpdT-=dt;
+  if(_panelUpdT>0) return;      // 프리셋별 주기마다만 재배치 (충분히 부드러움)
+  _panelUpdT=Q.panelInterval;
 
   // 유효 반경 안에 있는 횃불만 후보로 추림
   const cands=[];
-  const R2=(TORCH_RANGE+CELL)*(TORCH_RANGE+CELL);
-  for(let i=0;i<torchData.length;i++){
-    const td=torchData[i];
+  const R2=(PANEL_RANGE+CELL)*(PANEL_RANGE+CELL);
+  for(let i=0;i<panelData.length;i++){
+    const td=panelData[i];
     const dx=td.x-P.x, dz=td.z-P.z;
     const d2=dx*dx+dz*dz;
     if(d2<R2) cands.push({d2,td});
   }
   cands.sort((a,b)=>a.d2-b.d2);
 
-  for(let i=0;i<torchLightPool.length;i++){
-    const l=torchLightPool[i];
+  for(let i=0;i<panelLightPool.length;i++){
+    const l=panelLightPool[i];
     if(i<cands.length){
       const td=cands[i].td;
       l.position.set(td.x,td.y,td.z);
@@ -457,50 +486,42 @@ function part(list,geo,x,y,z,rx,rz){
   list.push({geo,m:_mgMat.clone()});
 }
 
-const gTorchBox=new THREE.BoxGeometry(.08,.26,.08);
-const gTorchRod=new THREE.CylinderGeometry(.04,.04,.32,8);
-const gTorchGlow=new THREE.SphereGeometry(.055,6,6);
-const gFlame=new THREE.ConeGeometry(.1,.26,8);
-const mTorchGlow=mkMat({color:0xffee88,emissive:0xffdd44,emissiveIntensity:4,transparent:true,opacity:.8});
+// 형광판은 천장에 붙은 납작한 면 하나다. 횃불과 달리 매 프레임 흔들리는 부분이 없어
+// 전부 병합할 수 있다 — 병합 불가 객체(torchFlames)가 통째로 사라졌다.
+// PlaneGeometry의 법선은 +Z이므로 X축으로 +90° 돌려 아래(-Y)를 보게 한다.
+const gPanel=new THREE.PlaneGeometry(.78,1.5);
 
-function placeTorch(wx,wz,fdx,fdz,brack,glow){
-  const bx=wx+fdx*(CELL/2-.05),bz=wz+fdz*(CELL/2-.05);
-  part(brack,gTorchBox,bx,1.55,bz);
-  part(brack,gTorchRod,bx+fdx*.1,1.7,bz+fdz*.1, fdz!==0?Math.PI/2.1:0, fdx!==0?Math.PI/2.1:0);
-  // 불꽃만 개별 Mesh로 남긴다 — 매 프레임 scale이 흔들려 병합할 수 없다
-  const fl=addO(new THREE.Mesh(gFlame,mFlame));
-  fl.position.set(bx+fdx*.1,1.92,bz+fdz*.1);torchFlames.push(fl);
-  part(glow,gTorchGlow,fl.position.x,fl.position.y,fl.position.z);
-  // 실제 PointLight를 만들지 않고 위치 데이터만 등록
-  torchData.push({x:bx+fdx*.1, y:1.98, z:bz+fdz*.1, phase:Math.random()*Math.PI*2});
+function placePanel(wx,wz,glow){
+  part(glow,gPanel,wx,WALL_H-.012,wz,Math.PI/2);
+  // 실제 PointLight를 만들지 않고 위치 데이터만 등록 (풀링 구조는 횃불 때와 동일)
+  panelData.push({x:wx, y:WALL_H-.14, z:wz, phase:Math.random()*Math.PI*2});
 }
 
 function buildWorld(){
-  worldObjs.forEach(o=>scene.remove(o));worldObjs.length=0;torchFlames.length=0;torchData.length=0;
+  worldObjs.forEach(o=>scene.remove(o));worldObjs.length=0;panelData.length=0;
   const gW=new THREE.BoxGeometry(CELL,WALL_H,CELL);
   const gF=new THREE.BoxGeometry(CELL,.1,CELL);
-  const FACES=[[1,0],[-1,0],[0,1],[0,-1]];
   // 전부를 한 덩어리로 합치면 절두체 컬링이 통째로 무력화되어 미로 전체가 매 프레임
   // 그려진다(실측: TRIS 0.1k → 17.9k). CHUNK칸 단위로 나눠 합쳐야 객체 수도 줄고
   // 컬링도 그대로 살아난다.
   const CHUNK=6, cxN=Math.ceil(MW/CHUNK), czN=Math.ceil(MH/CHUNK);
   const mk=()=>Array.from({length:cxN*czN},()=>[]);
-  const walls=mk(),floors=mk(),ceils=mk(),brack=mk(),glow=mk();
+  const walls=mk(),floors=mk(),ceils=mk(),ceilsDark=mk(),glow=mk();
   for(let row=0;row<MH;row++)for(let col=0;col<MW;col++){
-    const wx=col*CELL,wz=row*CELL,h=col*31+row*17;
+    const wx=col*CELL,wz=row*CELL;
     const ci=((row/CHUNK)|0)*cxN+((col/CHUNK)|0);
     if(mazeGrid[row][col]===0){
       part(walls[ci],gW,wx,WALL_H/2,wz);
-      if(h%5===0)for(const[fdx,fdz]of FACES){
-        const nx=col+fdx,nz=row+fdz;
-        if(nx>=0&&nz>=0&&nx<MW&&nz<MH&&mazeGrid[nz][nx]===1){placeTorch(wx,wz,fdx,fdz,brack[ci],glow[ci]);break;}
-      }
     }else{
       part(floors[ci],gF,wx,-.05,wz);
-      part(ceils[ci],gF,wx,WALL_H+.05,wz);
+      // 천장등은 길 칸 위에 격자로. 체커보드라 어느 방향 복도든 두 칸마다 하나가 걸린다.
+      // 어두운 구역에는 놓지 않는다 — 이게 "군데군데 어두운 통로"의 정체다.
+      const dark=isDarkZone(col,row);
+      part((dark?ceilsDark:ceils)[ci],gF,wx,WALL_H+.05,wz);
+      if(!dark && (col+row)%2===0) placePanel(wx,wz,glow[ci]);
     }
   }
-  for(const[lists,mat] of [[walls,mWall],[floors,mFloor],[ceils,mCeil],[brack,mBrack],[glow,mTorchGlow]])
+  for(const[lists,mat] of [[walls,mWall],[floors,mFloor],[ceils,mCeil],[ceilsDark,mCeilDark],[glow,mPanel]])
     for(const list of lists)
       if(list.length) addO(new THREE.Mesh(mergeParts(list),mat));
   // ── 출구 ── 열린 포탈과 잠긴 문을 함께 만들고 열쇠 소지 여부로 전환한다
@@ -538,7 +559,7 @@ function buildWorld(){
 
   applyKeyState();
 
-  initTorchLightPool();   // 횃불 광원 풀 생성 (개수 고정)
+  initPanelLightPool();   // 횃불 광원 풀 생성 (개수 고정)
 }
 
 // 열쇠 소지 여부를 화면에 반영. 광원 "개수"는 건드리지 않고 세기·색만 바꾼다.
@@ -1036,7 +1057,7 @@ function showScreen(id){
     }
   }
   document.getElementById('qnote').textContent=
-    '자동 감지 '+detectQuality()+' · 광원 '+(1+Q.torchLights+Q.monLights+1)+'개 · 변경 시 재시작';
+    '자동 감지 '+detectQuality()+' · 광원 '+(1+Q.panelLights+Q.monLights+1)+'개 · 변경 시 재시작';
   // 타이틀 기록 표시 — 이어할 레벨이 있으면 START가 거기서 시작한다
   const t=document.getElementById('titleRec');
   t.textContent = progress.resumeLevel>1
@@ -1239,30 +1260,28 @@ function animate(){
         if(t-_lastHeartbeat>interval){ _lastHeartbeat=t; heartbeat(inten); }
       }
 
-      // 횃불 탁탁 소리 — 활성 광원 중 하나에서 가끔 (초당 약 1.2회)
-      if(Math.random()<dt*1.2){
-        const on=torchLightPool.filter(l=>l.userData.on);
+      // 형광등 버즈 — 활성 광원 중 하나에서 가끔 (초당 약 0.5회)
+      if(Math.random()<dt*0.5){
+        const on=panelLightPool.filter(l=>l.userData.on);
         if(on.length){
           const l=on[(Math.random()*on.length)|0];
-          torchCrackle(l.position.x,l.position.y,l.position.z);
+          panelBuzz(l.position.x,l.position.y,l.position.z);
         }
       }
     }
     // 광원 재배치 (가장 가까운 N개만 실제 광원으로 사용)
-    updateTorchLights(dt,t);
+    updatePanelLights(dt,t);
     updateMonsterLights(t);
-    // 활성화된 풀 광원만 깜빡임 적용 (최대 MAX_TORCH_LIGHTS개)
-    for(const l of torchLightPool){
+    // 활성화된 풀 광원만 깜빡임 적용 (최대 MAX_PANEL_LIGHTS개)
+    // 형광등은 횃불과 정반대로 "대체로 일정"해야 한다. 불처럼 흔들면 백룸이 아니라 동굴이 된다.
+    for(const l of panelLightPool){
       if(!l.userData.on){continue;}
       const ph=l.userData.td?l.userData.td.phase:0;
-      l.intensity=Math.max(.5, 2.6
-        +Math.sin(t*7.3+ph)*.5 +Math.sin(t*13.1+ph*1.7)*.25
-        +Math.sin(t*3.2+ph*.5)*.4 +(Math.random()-.5)*.35)*Q.torchPower;
-    }
-    for(const fl of torchFlames){
-      fl.scale.x=1+Math.sin(t*9+fl.position.x)*.12;
-      fl.scale.z=1+Math.sin(t*11+fl.position.z)*.12;
-      fl.scale.y=1+Math.sin(t*6+fl.position.z)*.18;
+      let k=1+Math.sin(t*9.1+ph)*.035;              // 미세한 떨림
+      // 고장 난 등은 phase로 고정한다. 매번 무작위로 고르면 아무 등이나 깜빡여서
+      // "저 등이 나갔다"는 인상이 남지 않는다 (약 22%가 해당)
+      if(ph>4.9 && Math.sin(t*23.7+ph*3.1)+Math.sin(t*7.9+ph)>1.55) k*=.18;
+      l.intensity=1.15*k*Q.panelPower;
     }
     if(keyMesh&&keyMesh.visible){
       keyMesh.rotation.y=t*1.6;

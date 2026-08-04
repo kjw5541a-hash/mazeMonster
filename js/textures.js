@@ -1,8 +1,8 @@
 import * as THREE from 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.module.js';
 
-// ── DUNGEON TEXTURES ──
+// ── BACKROOMS TEXTURES ──
 // 모든 좌표·크기·반복 횟수는 256px 기준으로 작성한 뒤 s=size/256 을 곱한다.
-// 그냥 캔버스 크기만 바꾸면 128에서는 벽돌이 2×4개만 나오고, 바닥 타일 좌표(최대 256)가
+// 그냥 캔버스 크기만 바꾸면 128에서는 무늬가 듬성듬성해지고, 256까지 채우도록 쓴 좌표가
 // 캔버스 밖으로 넘어가 타일링 이음새에 빈 영역이 드러난다.
 export function finishTex(t,rep,aniso){
   t.wrapS=t.wrapT=THREE.RepeatWrapping;
@@ -11,115 +11,134 @@ export function finishTex(t,rep,aniso){
   return t;
 }
 
-// 잘라낸 돌벽돌(cut stone) — 줄눈 + 이끼 얼룩 + 거친 표면
-export function makeDungeonWall(size,aniso){
-  const w=size,h=size,s=size/256,px=Math.max(1,s);
+// 얼룩 하나. 타일링 경계에서 반쪽만 그려지면 이음새가 드러나므로,
+// 가장자리에 걸치면 반대편에도 같이 그려 넘어가게 한다.
+function blob(ctx,x,y,r,color,w,h){
+  const draw=(bx,by)=>{
+    const g=ctx.createRadialGradient(bx,by,0,bx,by,r);
+    g.addColorStop(0,color);g.addColorStop(1,'transparent');
+    ctx.fillStyle=g;ctx.beginPath();ctx.arc(bx,by,r,0,Math.PI*2);ctx.fill();
+  };
+  draw(x,y);
+  if(x<r)draw(x+w,y); else if(x>w-r)draw(x-w,y);
+  if(y<r)draw(x,y+h); else if(y>h-r)draw(x,y-h);
+}
+
+// 겨자색 벽지 — 백룸의 얼굴. 무늬는 "무늬"로 읽히면 안 되고 질감으로만 남아야 한다.
+// 대비를 올리면 복도마다 같은 무늬가 반복되는 게 눈에 띄어 싸구려로 보인다.
+export function makeWallpaper(size,aniso){
+  const w=size,h=size,s=size/256;
   const c=document.createElement('canvas');c.width=w;c.height=h;
   const ctx=c.getContext('2d');
 
-  // 기본 돌 색상 (청회색 계열)
-  ctx.fillStyle='#2e3340';ctx.fillRect(0,0,w,h);
+  ctx.fillStyle='#bdae66';ctx.fillRect(0,0,w,h);
 
-  // 벽돌 블록 패턴
-  const bW=64*s,bH=32*s; // 벽돌 크기
-  for(let row=0;row<Math.ceil(h/bH)+1;row++){
-    const offset=(row%2)*bW/2;
-    for(let col=-1;col<Math.ceil(w/bW)+1;col++){
-      const x=col*bW+offset,y=row*bH;
-      // 각 벽돌 색 미세 변화
-      const v=Math.floor(Math.random()*18-9);
-      const r=46+v,g=51+v,b=64+v;
-      ctx.fillStyle=`rgb(${r},${g},${b})`;
-      ctx.fillRect(x+px,y+px,bW-2*px,bH-2*px);
-      // 벽돌 내부 음영 (입체감)
-      ctx.fillStyle='rgba(0,0,0,0.18)';
-      ctx.fillRect(x+px,y+bH-4*s,bW-2*px,Math.max(1,3*s));
-      ctx.fillStyle='rgba(255,255,255,0.04)';
-      ctx.fillRect(x+px,y+px,bW-2*px,Math.max(1,3*s));
-    }
+  // 은은한 세로 스트라이프
+  for(let x=0;x<w;x+=16*s){
+    ctx.fillStyle='rgba(255,248,214,0.05)';
+    ctx.fillRect(x,0,8*s,h);
   }
-  // 줄눈 (mortar lines) — 어두운 회색
-  ctx.strokeStyle='#141820';ctx.lineWidth=Math.max(1,2*s);
-  for(let row=0;row<Math.ceil(h/bH)+1;row++){
-    const offset=(row%2)*bW/2;
-    // 가로줄
-    ctx.beginPath();ctx.moveTo(0,row*bH);ctx.lineTo(w,row*bH);ctx.stroke();
-    // 세로줄
-    for(let col=-1;col<Math.ceil(w/bW)+2;col++){
-      ctx.beginPath();ctx.moveTo(col*bW+offset,row*bH);ctx.lineTo(col*bW+offset,(row+1)*bH);ctx.stroke();
-    }
+
+  // 반복 마름모 무늬 — 32px 격자, 홀수 줄은 반 칸 밀어 엇갈리게
+  const step=32*s;
+  for(let y=0;y<h;y+=step)for(let x=0;x<w;x+=step){
+    const ox=(((y/step)|0)%2)?step/2:0;
+    ctx.save();ctx.translate(x+ox,y+step/2);ctx.rotate(Math.PI/4);
+    ctx.fillStyle='rgba(122,106,50,0.15)';
+    ctx.fillRect(-3.5*s,-3.5*s,7*s,7*s);
+    ctx.restore();
   }
-  // 이끼/얼룩 (하단부 집중) — 개수는 면적에 비례
-  const moss=Math.max(12,Math.round(60*s*s));
-  for(let i=0;i<moss;i++){
-    const x=Math.random()*w,y=h*0.4+Math.random()*h*0.6;
-    const r2=(3+Math.random()*10)*s;
-    const gr=ctx.createRadialGradient(x,y,0,x,y,r2);
-    gr.addColorStop(0,'rgba(30,55,25,0.45)');gr.addColorStop(1,'transparent');
-    ctx.fillStyle=gr;ctx.beginPath();ctx.arc(x,y,r2,0,Math.PI*2);ctx.fill();
-  }
-  // 습기 얼룩 (세로 방향)
-  for(let i=0;i<8;i++){
-    const x=Math.random()*w;
-    ctx.fillStyle='rgba(10,15,30,0.22)';
-    ctx.fillRect(x,Math.random()*h*0.5,(2+Math.random()*3)*s,h*0.4+Math.random()*h*0.3);
+
+  // 벽지 이음매 — 폭 1m(=128px)마다 한 줄
+  ctx.fillStyle='rgba(96,84,38,0.30)';
+  ctx.fillRect(0,0,Math.max(1,1.5*s),h);
+  ctx.fillRect(128*s,0,Math.max(1,1.5*s),h);
+
+  // 아래쪽 때. 캔버스 아래가 벽 아래다 (CanvasTexture는 flipY=true라 위아래가 그대로 대응)
+  const gr=ctx.createLinearGradient(0,h*0.62,0,h);
+  gr.addColorStop(0,'transparent');gr.addColorStop(1,'rgba(58,48,22,0.52)');
+  ctx.fillStyle=gr;ctx.fillRect(0,h*0.62,w,h*0.38);
+
+  // 물 얼룩 — 아래쪽에 몰리게
+  const stains=Math.max(4,Math.round(9*s*s));
+  for(let i=0;i<stains;i++)
+    blob(ctx,Math.random()*w,h*0.35+Math.random()*h*0.65,(10+Math.random()*26)*s,
+         'rgba(86,66,26,0.28)',w,h);
+
+  // 미세 그레인
+  const grain=Math.max(220,Math.round(900*s*s));
+  for(let i=0;i<grain;i++){
+    ctx.fillStyle=Math.random()<.5?'rgba(255,250,220,0.07)':'rgba(70,60,26,0.07)';
+    ctx.fillRect(Math.random()*w,Math.random()*h,Math.max(1,s),Math.max(1,s));
   }
   return finishTex(new THREE.CanvasTexture(c),1,aniso);
 }
 
-export function makeDungeonFloor(size,aniso){
-  const w=size,h=size,s=size/256,px=Math.max(1,s);
+// 축축한 겨자색 카펫 — 격자나 줄눈이 없어야 한다. 선이 보이면 사무실이 아니라 타일 바닥이 된다.
+export function makeCarpet(size,aniso){
+  const w=size,h=size,s=size/256;
   const c=document.createElement('canvas');c.width=w;c.height=h;
   const ctx=c.getContext('2d');
-  ctx.fillStyle='#1a1c22';ctx.fillRect(0,0,w,h);
-  // 석판 패턴 (불규칙한 사각형) — 256px 기준 좌표에 s를 곱해 사용
-  const tiles=[[0,0,48,48],[48,0,40,48],[88,0,56,48],[144,0,50,48],[194,0,62,48],
-               [0,48,62,44],[62,48,44,44],[106,48,58,44],[164,48,48,44],[212,48,44,44]];
-  for(const[tx0,ty0,tw0,th0] of tiles){
-    const tx=tx0*s,ty=ty0*s,tw=tw0*s,th=th0*s;
-    const v=Math.floor(Math.random()*12);
-    ctx.fillStyle=`rgb(${32+v},${35+v},${44+v})`;
-    ctx.fillRect(tx+px,ty+px,tw-2*px,th-2*px);
-    ctx.fillStyle='rgba(0,0,0,0.3)';
-    ctx.fillRect(tx+px,ty+th-3*s,tw-2*px,Math.max(1,2*s));
-  }
-  // 줄눈
-  ctx.strokeStyle='#0e1016';ctx.lineWidth=Math.max(1,2*s);
-  for(let x=0;x<w;x+=48*s){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke();}
-  for(let y=0;y<h;y+=48*s){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();}
-  // 이끼/물때
-  const moss=Math.max(8,Math.round(40*s*s));
-  for(let i=0;i<moss;i++){
-    const x=Math.random()*w,y=Math.random()*h,r=(2+Math.random()*7)*s;
-    const gr=ctx.createRadialGradient(x,y,0,x,y,r);
-    gr.addColorStop(0,'rgba(20,40,18,0.4)');gr.addColorStop(1,'transparent');
-    ctx.fillStyle=gr;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();
+
+  ctx.fillStyle='#6f6334';ctx.fillRect(0,0,w,h);
+
+  // 습기 얼룩 — 섬유보다 먼저 깔아야 섬유가 위에 남는다
+  const damp=Math.max(6,Math.round(22*s*s));
+  for(let i=0;i<damp;i++)
+    blob(ctx,Math.random()*w,Math.random()*h,(14+Math.random()*34)*s,
+         Math.random()<.5?'rgba(48,42,20,0.34)':'rgba(126,114,62,0.22)',w,h);
+
+  // 섬유 — 짧은 선을 촘촘히. 방향을 조금씩 흔들어야 결이 생긴다
+  const fib=Math.max(600,Math.round(2200*s*s));
+  for(let i=0;i<fib;i++){
+    const x=Math.random()*w,y=Math.random()*h;
+    const v=Math.floor(Math.random()*46-20);
+    ctx.fillStyle=`rgba(${111+v},${99+v},${52+v},0.55)`;
+    ctx.fillRect(x,y,Math.max(1,(1+Math.random()*2)*s),Math.max(1,(2+Math.random()*3)*s));
   }
   return finishTex(new THREE.CanvasTexture(c),3,aniso);
 }
 
-export function makeDungeonCeil(size,aniso){
+// 흰 텍스 천장 — 백룸에서는 천장이 조연이 아니라 주연이다.
+// 3×3 격자(칸당 CELL=2m이므로 타일 한 장이 약 0.67m — 실제 아코스틱 타일 규격과 비슷)
+export function makeDropCeiling(size,aniso){
   const w=size,h=size,s=size/256;
   const c=document.createElement('canvas');c.width=w;c.height=h;
   const ctx=c.getContext('2d');
-  ctx.fillStyle='#111318';ctx.fillRect(0,0,w,h);
-  // 거친 돌 천장 — 불규칙 균열
-  const blobs=Math.max(40,Math.round(200*s*s));
-  for(let i=0;i<blobs;i++){
-    const x=Math.random()*w,y=Math.random()*h,r=(1+Math.random()*6)*s;
-    const gr=ctx.createRadialGradient(x,y,0,x,y,r);
-    gr.addColorStop(0,'rgba(0,0,0,0.35)');gr.addColorStop(1,'transparent');
-    ctx.fillStyle=gr;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();
+
+  ctx.fillStyle='#cfcbb8';ctx.fillRect(0,0,w,h);
+
+  const n=3,tile=w/n;
+  for(let ty=0;ty<n;ty++)for(let tx=0;tx<n;tx++){
+    // 타일마다 살짝 다른 색 — 다 똑같으면 인쇄물처럼 보인다
+    const v=Math.floor(Math.random()*14-7);
+    ctx.fillStyle=`rgb(${203+v},${199+v},${181+v})`;
+    ctx.fillRect(tx*tile,ty*tile,tile,tile);
+    // 물 샌 자국이 있는 타일
+    if(Math.random()<.22)
+      blob(ctx,(tx+.2+Math.random()*.6)*tile,(ty+.2+Math.random()*.6)*tile,
+           tile*(.18+Math.random()*.22),'rgba(150,128,72,0.42)',w,h);
   }
-  ctx.strokeStyle='rgba(0,0,0,0.25)';
-  const cracks=Math.max(4,Math.round(14*s*s));
-  for(let i=0;i<cracks;i++){
-    ctx.lineWidth=(.5+Math.random()*1.2)*s;ctx.beginPath();
-    let cx=Math.random()*w,cy=Math.random()*h;ctx.moveTo(cx,cy);
-    for(let j=0;j<5;j++){cx+=(Math.random()*20-10)*s;cy+=(Math.random()*20-10)*s;ctx.lineTo(cx,cy);}
-    ctx.stroke();
+
+  // 아코스틱 타일 미세 구멍
+  const holes=Math.max(300,Math.round(1400*s*s));
+  for(let i=0;i<holes;i++){
+    ctx.fillStyle='rgba(120,116,100,0.30)';
+    ctx.fillRect(Math.random()*w,Math.random()*h,Math.max(1,s),Math.max(1,s));
   }
-  return finishTex(new THREE.CanvasTexture(c),0,aniso);
+
+  // T바 격자 — 어두운 홈 + 위쪽 하이라이트
+  const lw=Math.max(1,2.5*s);
+  for(let i=0;i<=n;i++){
+    const p=i*tile;
+    ctx.fillStyle='rgba(96,92,78,0.72)';
+    ctx.fillRect(p-lw/2,0,lw,h);
+    ctx.fillRect(0,p-lw/2,w,lw);
+    ctx.fillStyle='rgba(240,238,226,0.55)';
+    ctx.fillRect(p-lw/2,0,Math.max(1,.8*s),h);
+    ctx.fillRect(0,p-lw/2,w,Math.max(1,.8*s));
+  }
+  return finishTex(new THREE.CanvasTexture(c),1,aniso);
 }
 
 // 몬스터 살갗 — 붕대가 감긴 표면. 사지 메시에 타일링해 입히므로 세로로 반복 가능해야 한다.
@@ -150,4 +169,3 @@ export function makeFleshTex(size,aniso){
   }
   return finishTex(new THREE.CanvasTexture(c),1,aniso);
 }
-
