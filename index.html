@@ -189,7 +189,7 @@ import { CELL,WALL_H,MAZE_MIN,MAZE_MAX,MAZE_STEP,mazeSizeFor,
          CHARGE_TIME,CHARGE_BOOST,SNARL_MIN,SNARL_VAR } from './js/constants.js';
 import { QUALITY_PRESETS,QKEY,QNAME,Q,isMobile,detectQuality } from './js/quality.js';
 import { generateMaze,bfsDistances,bfsNext,hasLOS } from './js/maze.js';
-import { makeWallpaper,makeCarpet,makeDropCeiling,makeFleshTex } from './js/textures.js';
+import { makeWallpaper,makeCarpet,makeDropCeiling } from './js/textures.js';
 import { unlockAudio,updateAudioListener,footstep,monsterStep,playGrowl,panelBuzz,
          playShriek,heartbeat,playDeath,playEscape,playKeyPickup,playLocked } from './js/audio.js';
 import { progress,loadProgress,markLevel,markEscape,resetRun } from './js/save.js';
@@ -228,7 +228,6 @@ const ANISO=Q.aniso===0?MAX_ANISO:Math.min(Q.aniso,MAX_ANISO);
 const wallMap =makeWallpaper(Q.texSize,ANISO);
 const floorMap=makeCarpet(Q.texSize,ANISO);
 const ceilMap =makeDropCeiling(Q.texSize,ANISO);
-const fleshMap=makeFleshTex(Q.texSize,ANISO);
 
 // 재질 팩토리 — LOW/MEDIUM은 MeshPhongMaterial로 대체한다.
 // MeshLambertMaterial을 쓰지 않는 이유: r128의 Lambert는 정점 단위(Gouraud) 조명이라
@@ -260,21 +259,27 @@ const mCeilDark=mkMat({map:ceilMap, color:0x6e6a5c,roughness:.90,metalness:.02})
 // 형광판 — 광원이 아니라 발광 재질이다. 광원 개수를 늘리지 않고 "밝게 보이는" 축.
 const mPanel  =mkMat({color:0xffffff,emissive:0xfff6dc,emissiveIntensity:3.4});
 const mExit   =mkMat({color:0x00ff88,emissive:0x00ff88,emissiveIntensity:1.6,transparent:true,opacity:.88});
-const mMonBody=mkMat({map:fleshMap,color:0x8f8879,roughness:.93,emissive:0x120a08,emissiveIntensity:.28});
-const mMonFace=mkMat({color:0x15100f,roughness:1});   // 얼굴 자리의 움푹 팬 그늘
-const mMonEye =mkMat({color:0xff0000,emissive:0xff0000,emissiveIntensity:3.0});
+// 몬스터 — 빛을 전혀 받지 않는 순수한 검정. MeshBasicMaterial은 조명 계산을 아예 건너뛰므로
+// 어떤 밝기에서도 실루엣이 보장되고, Phong/Standard보다 오히려 싸다.
+// (mkMat을 쓰지 않는 유일한 예외다. mkMat은 roughness/metalness를 셰이딩 파라미터로
+//  옮기는 팩토리인데, 여기서는 셰이딩 자체가 없어야 하므로 변환할 것이 없다.)
+// fog는 그대로 적용되므로 멀어질수록 안개색에 잠겨 대비가 약해진다 — 참고 사진의
+// 원경 실루엣이 회색빛으로 흐려지는 것과 같고, 이게 거리감을 만든다.
+const mMonBody=new THREE.MeshBasicMaterial({color:0x000000});
 
 // 몬스터 골격 치수 (group 원점 기준. group은 월드 y=0.1에 놓이므로 로컬 -0.10이 바닥)
 // 사지를 회전축(Group)에 매달아 어깨·팔꿈치·고관절을 각각 돌린다.
 // 지오메트리는 모듈 레벨에서 1회만 만들어 모든 몬스터가 공유한다.
-const MON_HIP_Y=.78, MON_SHO_Y=1.28, MON_HEAD_Y=1.50;
-const gMonTorso=new THREE.CylinderGeometry(.17,.23,.54,7);
-const gMonHead =new THREE.SphereGeometry(.16,9,7);
-const gMonEye  =new THREE.SphereGeometry(.030,6,6);
-const gMonFace =new THREE.SphereGeometry(.115,9,7);
-const gMonUpper=new THREE.CylinderGeometry(.055,.045,.40,6);
-const gMonFore =new THREE.CylinderGeometry(.045,.032,.42,6);
-const gMonLeg  =new THREE.CylinderGeometry(.075,.05,.88,6);
+//
+// 백룸 개체는 사람이 아니라 "늘어난 것"이다. 키 약 2.3m(벽 높이 2.6m)로 복도를 꽉 채우고,
+// 머리는 작고 팔다리는 비정상적으로 길고 가늘다. 카메라 눈높이가 1.22m라 머리(약 2.0m)가
+// 한참 위에 있어 올려다보게 된다.
+const MON_HIP_Y=1.20, MON_SHO_Y=1.82, MON_HEAD_Y=1.98;
+const gMonTorso=new THREE.CylinderGeometry(.115,.165,.62,7);
+const gMonHead =new THREE.SphereGeometry(.115,9,7);
+const gMonUpper=new THREE.CylinderGeometry(.042,.034,.66,6);
+const gMonFore =new THREE.CylinderGeometry(.034,.024,.74,6);
+const gMonLeg  =new THREE.CylinderGeometry(.058,.038,1.30,6);
 
 // 회전축 Group을 만들고 그 안에 메시를 길이의 절반만큼 내려 단다.
 // 이렇게 해야 Group을 돌렸을 때 관절을 중심으로 회전한다(메시 중앙이 아니라).
@@ -603,39 +608,25 @@ class Monster{
     torso.rotation.x=0.16;               // 앞으로 굽은 자세
     this.group.add(torso);
 
-    // 머리는 회전축(head) 안에 메시·얼굴·눈을 형제로 넣는다. 두개골 메시에 준 비균등
-    // 스케일(.92,1.22,.92)이 자식으로 상속되면 얼굴과 눈이 같이 일그러지기 때문이다.
+    // 머리는 회전축(head) 안에 넣는다. 두개골 메시에 준 비균등 스케일이 자식으로
+    // 상속되면 나중에 뭔가 매달 때 같이 일그러지기 때문이다.
+    // 이목구비도 눈도 없다 — 참고 사진의 개체는 얼굴이 없는 검은 덩어리다.
     this.head=new THREE.Group();
     this.head.position.y=MON_HEAD_Y;
     this.group.add(this.head);
 
     const skull=new THREE.Mesh(gMonHead,mMonBody);
-    skull.scale.set(.92,1.22,.92);        // 갸름한 달걀형
+    skull.scale.set(.88,1.30,.88);        // 작고 갸름한 머리
     this.head.add(skull);
 
-    // 이목구비 없이 움푹 팬 그늘만
-    const face=new THREE.Mesh(gMonFace,mMonFace);
-    face.position.z=.075;
-    face.scale.set(1,1.05,.5);
-    this.head.add(face);
-
-    // 눈은 두개골 표면보다 확실히 앞에 둬야 한다. 머리는 z축으로 .92배 눌려 반지름이
-    // 약 .147이고 x=±.055 지점의 표면 z는 약 .137이라, 그보다 안쪽이면 파묻혀 안 보인다.
-    const eyeL=new THREE.Mesh(gMonEye,mMonEye.clone());
-    eyeL.position.set(-.055,.005,.155);
-    const eyeR=new THREE.Mesh(gMonEye,mMonEye.clone());
-    eyeR.position.set(.055,.005,.155);
-    this.eyes=[eyeL,eyeR];   // children 인덱스 대신 직접 참조 — 메시 구성이 바뀌어도 안전
-    this.head.add(eyeL,eyeR);
-
-    // 팔 — 무릎 근처까지 내려오는 비정상적인 길이
-    // 어깨 축은 몸통 윗반지름(.17) 안쪽에 둔다. 밖으로 빼면 팔을 들었을 때 틈이 벌어진다
-    this.armL=jointLimb(gMonUpper,.40,this.group,-.165,MON_SHO_Y);
-    this.armR=jointLimb(gMonUpper,.40,this.group, .165,MON_SHO_Y);
-    this.foreL=jointLimb(gMonFore,.42,this.armL,0,-.40);
-    this.foreR=jointLimb(gMonFore,.42,this.armR,0,-.40);
-    this.legL=jointLimb(gMonLeg,.88,this.group,-.10,MON_HIP_Y);
-    this.legR=jointLimb(gMonLeg,.88,this.group, .10,MON_HIP_Y);
+    // 팔 — 정강이 근처까지 내려오는 비정상적인 길이 (어깨 1.82에서 1.40을 내려 0.42)
+    // 어깨 축은 몸통 윗반지름(.115) 안쪽에 둔다. 밖으로 빼면 팔을 들었을 때 틈이 벌어진다
+    this.armL=jointLimb(gMonUpper,.66,this.group,-.11,MON_SHO_Y);
+    this.armR=jointLimb(gMonUpper,.66,this.group, .11,MON_SHO_Y);
+    this.foreL=jointLimb(gMonFore,.74,this.armL,0,-.66);
+    this.foreR=jointLimb(gMonFore,.74,this.armR,0,-.66);
+    this.legL=jointLimb(gMonLeg,1.30,this.group,-.075,MON_HIP_Y);
+    this.legR=jointLimb(gMonLeg,1.30,this.group, .075,MON_HIP_Y);
     this.group.position.set(this.wx,.1,this.wz);
     scene.add(this.group);worldObjs.push(this.group);
     // 눈 광원은 몬스터마다 만들지 않는다 — monLightPool이 최근접 N마리에만 배치 (아래 참조)
@@ -802,48 +793,15 @@ class Monster{
     while(d> Math.PI)d-=Math.PI*2;
     while(d<-Math.PI)d+=Math.PI*2;
     this.group.rotation.y+=d*Math.min(1,dt*9);
-
-    const ei=this.state==='chase'?3+Math.sin(t*8):1.5;
-    this.eyes[0].material.emissiveIntensity=ei;
-    this.eyes[1].material.emissiveIntensity=ei;
   }
   distToPlayer(){const dx=this.wx-P.x,dz=this.wz-P.z;return Math.sqrt(dx*dx+dz*dz);}
   remove(){scene.remove(this.group);}
 }
 let monsters=[];
 
-// 몬스터 눈 광원 풀 — 횃불과 동일한 패턴.
-// 개수는 부팅 시 Q.monLights로 고정하고 씬에 상주시킨다(레벨이 바뀌어도 제거하지 않음).
-// 몬스터 수에 맞춰 늘렸다 줄였다 하면 레벨 전환마다 셰이더가 재컴파일된다.
-const monLightPool=[];
-for(let i=0;i<Q.monLights;i++){
-  const l=new THREE.PointLight(0xff0000,0,3.5);
-  l.position.set(0,-9999,0);
-  scene.add(l);
-  monLightPool.push(l);
-}
-function updateMonsterLights(t){
-  if(!monLightPool.length)return;
-  // 가장 가까운 순으로 정렬해 앞쪽 N마리에만 광원을 붙인다
-  const cands=[];
-  for(const m of monsters){
-    const dx=m.wx-P.x,dz=m.wz-P.z;
-    cands.push({d2:dx*dx+dz*dz,m});
-  }
-  cands.sort((a,b)=>a.d2-b.d2);
-  for(let i=0;i<monLightPool.length;i++){
-    const l=monLightPool[i];
-    if(i<cands.length&&cands[i].d2<5.5*5.5){
-      const m=cands[i].m;
-      l.position.set(m.wx,1.3,m.wz);
-      l.intensity=m.state==='chase'?2.0+Math.sin(t*8)*.8:.7+Math.sin(t*2)*.3;
-    }else{
-      // 유효 반경 밖이면 세기만 0으로 (visible은 건드리지 않음 — 광원 개수 고정 유지)
-      l.position.set(0,-9999,0);
-      l.intensity=0;
-    }
-  }
-}
+// 몬스터 눈 광원 풀(monLightPool)은 제거했다. 백룸 개체는 눈이 없는 검은 실루엣이라
+// 발광할 곳이 없고, 밝은 벽을 배경으로 한 대비가 예전의 눈빛보다 훨씬 멀리서 보인다.
+// 부수 효과로 광원이 프리셋마다 1~3개 줄었다 (5/6/9/11 → 4/5/6/8).
 
 // ── FOG OF WAR ──
 let visited=[];
@@ -1057,7 +1015,7 @@ function showScreen(id){
     }
   }
   document.getElementById('qnote').textContent=
-    '자동 감지 '+detectQuality()+' · 광원 '+(1+Q.panelLights+Q.monLights+1)+'개 · 변경 시 재시작';
+    '자동 감지 '+detectQuality()+' · 광원 '+(1+Q.panelLights+1)+'개 · 변경 시 재시작';
   // 타이틀 기록 표시 — 이어할 레벨이 있으면 START가 거기서 시작한다
   const t=document.getElementById('titleRec');
   t.textContent = progress.resumeLevel>1
@@ -1271,7 +1229,6 @@ function animate(){
     }
     // 광원 재배치 (가장 가까운 N개만 실제 광원으로 사용)
     updatePanelLights(dt,t);
-    updateMonsterLights(t);
     // 활성화된 풀 광원만 깜빡임 적용 (최대 MAX_PANEL_LIGHTS개)
     // 형광등은 횃불과 정반대로 "대체로 일정"해야 한다. 불처럼 흔들면 백룸이 아니라 동굴이 된다.
     for(const l of panelLightPool){

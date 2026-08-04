@@ -8,8 +8,9 @@
 //  3) 게임 밸런스 값(fog 밀도, 몬스터 시야·청각·속도)은 프리셋에 넣지 않는다.
 //     품질 설정으로 난이도가 달라지면 안 된다.
 //
-// 총 광원 수 = ambient 1 + 천장등 N + 몬스터 눈 M + 출구 1
-//   LOW 5 / MEDIUM 6 / HIGH 9 / ULTRA 11
+// 총 광원 수 = ambient 1 + 천장등 N + 출구 1
+//   LOW 4 / MEDIUM 5 / HIGH 6 / ULTRA 8
+// (몬스터 눈 광원은 백룸 개체가 눈 없는 검은 실루엣이 되면서 사라졌다)
 // ambient / panelRange / panelPower는 광원 "개수"를 늘리지 않고 밝기를 보정하는 축이다.
 // AmbientLight는 픽셀당 광원 순회에 들어가지 않고, PointLight의 distance·intensity는
 // 순회 횟수를 바꾸지 않으므로 셋 다 사실상 공짜다.
@@ -29,10 +30,10 @@
 // 프리셋은 panelPower로만 보정한다.
 const AMBIENT=0.78, PRANGE=7.2;
 export const QUALITY_PRESETS={
-  LOW:   {label:'LOW',  prCap:1.0,scale:0.6,panelLights:2,monLights:1,texSize:128,aniso:1,aa:false,matType:'phong',   panelInterval:0.20,mmInterval:8,panning:'equalpower',targetFps:30,ambient:AMBIENT,panelRange:PRANGE,panelPower:1.42},
-  MEDIUM:{label:'MED',  prCap:1.5,scale:0.8,panelLights:3,monLights:1,texSize:256,aniso:1,aa:false,matType:'phong',   panelInterval:0.15,mmInterval:6,panning:'HRTF',      targetFps:55,ambient:AMBIENT,panelRange:PRANGE,panelPower:1.15},
-  HIGH:  {label:'HIGH', prCap:2.0,scale:1.0,panelLights:4,monLights:3,texSize:256,aniso:4,aa:true, matType:'standard',panelInterval:0.12,mmInterval:4,panning:'HRTF',      targetFps:55,ambient:AMBIENT,panelRange:PRANGE,panelPower:1.00},
-  ULTRA: {label:'ULTRA',prCap:3.0,scale:1.0,panelLights:6,monLights:3,texSize:512,aniso:0,aa:true, matType:'standard',panelInterval:0.10,mmInterval:4,panning:'HRTF',      targetFps:60,ambient:AMBIENT,panelRange:PRANGE,panelPower:1.00},
+  LOW:   {label:'LOW',  prCap:1.0,scale:0.6,panelLights:2,texSize:128,aniso:1,aa:false,matType:'phong',   panelInterval:0.20,mmInterval:8,panning:'equalpower',targetFps:30,ambient:AMBIENT,panelRange:PRANGE,panelPower:1.42},
+  MEDIUM:{label:'MED',  prCap:1.5,scale:0.8,panelLights:3,texSize:256,aniso:1,aa:false,matType:'phong',   panelInterval:0.15,mmInterval:6,panning:'HRTF',      targetFps:55,ambient:AMBIENT,panelRange:PRANGE,panelPower:1.15},
+  HIGH:  {label:'HIGH', prCap:2.0,scale:1.0,panelLights:4,texSize:256,aniso:4,aa:true, matType:'standard',panelInterval:0.12,mmInterval:4,panning:'HRTF',      targetFps:55,ambient:AMBIENT,panelRange:PRANGE,panelPower:1.00},
+  ULTRA: {label:'ULTRA',prCap:3.0,scale:1.0,panelLights:6,texSize:512,aniso:0,aa:true, matType:'standard',panelInterval:0.10,mmInterval:4,panning:'HRTF',      targetFps:60,ambient:AMBIENT,panelRange:PRANGE,panelPower:1.00},
 };
 export const QKEY='de_quality';
 export const isMobile=/iPhone|iPad|Android/i.test(navigator.userAgent);

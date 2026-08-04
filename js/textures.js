@@ -140,32 +140,3 @@ export function makeDropCeiling(size,aniso){
   }
   return finishTex(new THREE.CanvasTexture(c),1,aniso);
 }
-
-// 몬스터 살갗 — 붕대가 감긴 표면. 사지 메시에 타일링해 입히므로 세로로 반복 가능해야 한다.
-// (전신을 한 장에 그린 이전 방식은 평면 빌보드 전용이라 관절 구조로 바꾸면서 폐기)
-export function makeFleshTex(size,aniso){
-  const s=size/256,w=size,h=size;
-  const c=document.createElement('canvas');c.width=w;c.height=h;
-  const ctx=c.getContext('2d');
-  const base=ctx.createLinearGradient(0,0,0,h);
-  base.addColorStop(0,'#9c9484');base.addColorStop(.5,'#7e7869');base.addColorStop(1,'#8f8878');
-  ctx.fillStyle=base;ctx.fillRect(0,0,w,h);
-  // 붕대 — 비스듬히 감긴 띠. 위아래 끝을 맞춰야 이음새가 안 보인다
-  const bands=Math.max(6,Math.round(14*s));
-  for(let i=0;i<bands;i++){
-    const y=i*(h/bands);
-    ctx.fillStyle=`rgba(226,220,203,${.06+Math.random()*.16})`;
-    ctx.fillRect(0,y,w,(h/bands)*(.35+Math.random()*.4));
-    ctx.strokeStyle='rgba(48,42,36,0.28)';ctx.lineWidth=Math.max(1,1.4*s);
-    ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y+2*s);ctx.stroke();
-  }
-  // 얼룩
-  const spots=Math.max(10,Math.round(30*s*s));
-  for(let i=0;i<spots;i++){
-    const x=Math.random()*w,y=Math.random()*h,r=(4+Math.random()*12)*s;
-    const gr=ctx.createRadialGradient(x,y,0,x,y,r);
-    gr.addColorStop(0,'rgba(40,26,20,0.42)');gr.addColorStop(1,'transparent');
-    ctx.fillStyle=gr;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();
-  }
-  return finishTex(new THREE.CanvasTexture(c),1,aniso);
-}
