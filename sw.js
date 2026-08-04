@@ -1,4 +1,4 @@
-const CACHE = 'dungeon-escape-v21';
+const CACHE = 'dungeon-escape-v22';
 const ASSETS = [
   './',
   './index.html',
