@@ -117,18 +117,25 @@ export function playGrowl(x,z){
   }catch(_){}
 }
 
-// 횃불 탁탁거리는 소리 — 가장 가까운 횃불에서 가끔
-export function torchCrackle(x,y,z){
+// 형광등 버즈 — 가장 가까운 천장등에서 가끔. 횃불의 탁탁 소리를 대체한다.
+// 안정기(ballast)가 내는 저음 험이라 기음을 120Hz 부근에 두고 배음을 하나 얹는다.
+// 아주 작게 깔아야 한다 — 크면 공간이 조용해서 무서운 게 아니라 그냥 시끄러워진다.
+export function panelBuzz(x,y,z){
   try{
     const c=getAC();
-    const src=c.createBufferSource();src.buffer=getNoiseBuf();
-    src.playbackRate.value=1.8+Math.random()*1.2;
-    const f=c.createBiquadFilter();f.type='highpass';f.frequency.value=1800;
-    const g=c.createGain();g.gain.value=.28;
-    const p=makePanner(x,y,z, 1.2, 12, 2.2);
-    src.connect(f);f.connect(g);g.connect(p);
-    src.start();
-    src.onended=()=>{try{p.disconnect();g.disconnect();f.disconnect();}catch(_){}};
+    const o1=c.createOscillator();o1.type='sawtooth';o1.frequency.value=118+Math.random()*6;
+    const o2=c.createOscillator();o2.type='square';  o2.frequency.value=o1.frequency.value*2;
+    const f=c.createBiquadFilter();f.type='bandpass';f.frequency.value=780;f.Q.value=5.5;
+    const g=c.createGain();
+    const p=makePanner(x,y,z, 1.4, 11, 2.4);
+    const t0=c.currentTime, dur=.30+Math.random()*.25;
+    g.gain.setValueAtTime(0,t0);
+    g.gain.linearRampToValueAtTime(.075,t0+.04);
+    g.gain.setValueAtTime(.075,t0+dur-.08);
+    g.gain.linearRampToValueAtTime(0,t0+dur);
+    o1.connect(f);o2.connect(f);f.connect(g);g.connect(p);
+    o1.start(t0);o2.start(t0);o1.stop(t0+dur);o2.stop(t0+dur);
+    o1.onended=()=>{try{p.disconnect();g.disconnect();f.disconnect();}catch(_){}};
   }catch(_){}
 }
 
