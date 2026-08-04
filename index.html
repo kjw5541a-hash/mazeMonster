@@ -275,11 +275,49 @@ const mMonBody=new THREE.MeshBasicMaterial({color:0x000000});
 // 머리는 작고 팔다리는 비정상적으로 길고 가늘다. 카메라 눈높이가 1.22m라 머리(약 2.0m)가
 // 한참 위에 있어 올려다보게 된다.
 const MON_HIP_Y=1.20, MON_SHO_Y=1.82, MON_HEAD_Y=1.98;
+const MON_LEG_LEN=1.30;
+// 다리 스윙 진폭 = 보폭을 정한다. 보폭 2·L·sin(amp) —
+// 걷기 0.34rad → 0.87m, 추격 0.80rad → 1.87m. 추격이 "성큼성큼"인 이유가 여기다.
+const MON_STRIDE_WALK=0.34, MON_STRIDE_CHASE=0.80;
+const MON_JAW_OPEN=0.95;   // 약 54° — 두개골이 반으로 갈라지는 각도
 const gMonTorso=new THREE.CylinderGeometry(.115,.165,.62,7);
-const gMonHead =new THREE.SphereGeometry(.115,9,7);
 const gMonUpper=new THREE.CylinderGeometry(.042,.034,.66,6);
 const gMonFore =new THREE.CylinderGeometry(.034,.024,.74,6);
-const gMonLeg  =new THREE.CylinderGeometry(.058,.038,1.30,6);
+const gMonLeg  =new THREE.CylinderGeometry(.058,.038,MON_LEG_LEN,6);
+
+// ── 입 ──
+// 두개골을 위턱·아래턱 두 반구로 나눠 경첩처럼 벌린다. 사람 턱이 아니라 머리가 쩍 갈라지는
+// 모양이라 멀리서도 실루엣으로 읽힌다.
+// 이빨은 "조명을 받는" 재질이다. 몸통처럼 빛을 무시하게 만들면 어두운 구역에서 이빨만
+// 둥둥 떠 보여, 검은 실루엣이 어둠에 묻히는 설계(실측 가시성 0.83%)가 통째로 깨진다.
+const mMonTooth=mkMat({color:0xd8d2c0,roughness:.55,metalness:.05});
+const mMonMaw  =mkMat({color:0x2a0d0d,roughness:1});   // 입 안쪽 — 어둡고 축축한 살
+// SphereGeometry(r, wSeg, hSeg, phiStart, phiLength, thetaStart, thetaLength)
+// theta는 극각(0이 +Y) — 위 반구와 아래 반구로 두개골을 가른다
+const gMonSkullU=new THREE.SphereGeometry(.135,9,6,0,Math.PI*2,0,Math.PI/2);
+const gMonSkullL=new THREE.SphereGeometry(.135,9,6,0,Math.PI*2,Math.PI/2,Math.PI/2);
+const gMonMaw   =new THREE.CircleGeometry(.125,10);
+
+// 이빨 12개를 한 덩어리로 합친다 — 마리마다 원뿔 12개를 따로 다는 것보다 객체가 12배 적다.
+// mergeParts는 position/normal/uv를 가진 인덱스 지오메트리면 받으므로 ConeGeometry도 된다.
+// ⚠ mergeParts/part가 쓰는 _mgMat 등이 이 아래에서 const로 선언되므로 모듈 평가 시점에
+//   호출하면 TDZ에 걸린다. 첫 몬스터 생성 때 한 번만 만들어 캐시한다.
+let _gToothU=null,_gToothL=null;
+function toothRows(){
+  if(!_gToothU){
+    const cone=new THREE.ConeGeometry(.019,.070,5);
+    const row=upper=>{
+      const parts=[];
+      for(let i=0;i<12;i++){
+        const th=Math.PI*(0.12+0.76*(i/11));    // 앞쪽 반원에만 늘어세운다
+        part(parts,cone,Math.cos(th)*.105,upper?-.030:.030,Math.sin(th)*.105, upper?Math.PI:0);
+      }
+      return mergeParts(parts);
+    };
+    _gToothU=row(true); _gToothL=row(false);
+  }
+  return [_gToothU,_gToothL];
+}
 
 // 회전축 Group을 만들고 그 안에 메시를 길이의 절반만큼 내려 단다.
 // 이렇게 해야 Group을 돌렸을 때 관절을 중심으로 회전한다(메시 중앙이 아니라).
@@ -592,7 +630,7 @@ function blocked(nx,nz){
 // ── MONSTER CLASS ──
 class Monster{
   constructor(gx,gz,spd){
-    this.stepPhase=Math.random()*Math.PI*2;   // 발소리 타이밍 (몬스터마다 다르게)
+    this._px=gx*CELL; this._pz=gz*CELL;   // 거리 기반 위상용 직전 좌표
     this.gx=gx;this.gz=gz;this.wx=gx*CELL;this.wz=gz*CELL;this.spd=spd;
     this.state='patrol';this.path=null;this.patrolTarget=null;
     this.searchPos=null;this.searchTimer=0;this.alertTimer=0;
@@ -608,16 +646,35 @@ class Monster{
     torso.rotation.x=0.16;               // 앞으로 굽은 자세
     this.group.add(torso);
 
-    // 머리는 회전축(head) 안에 넣는다. 두개골 메시에 준 비균등 스케일이 자식으로
-    // 상속되면 나중에 뭔가 매달 때 같이 일그러지기 때문이다.
-    // 이목구비도 눈도 없다 — 참고 사진의 개체는 얼굴이 없는 검은 덩어리다.
+    // 머리는 회전축(head) 안에 위턱·아래턱 두 Group을 형제로 넣는다.
+    // 두개골 메시에 준 비균등 스케일이 이빨로 상속되면 이빨이 같이 일그러지기 때문에,
+    // 이빨은 반구의 자식이 아니라 턱 Group의 자식이어야 한다.
+    // 눈도 이목구비도 없다 — 참고 사진의 개체는 얼굴이 없는 검은 덩어리다.
     this.head=new THREE.Group();
     this.head.position.y=MON_HEAD_Y;
     this.group.add(this.head);
 
-    const skull=new THREE.Mesh(gMonHead,mMonBody);
-    skull.scale.set(.88,1.30,.88);        // 작고 갸름한 머리
-    this.head.add(skull);
+    const[gTU,gTL]=toothRows();
+    const HINGE=-.10;                     // 경첩은 머리 뒤쪽. 앞이 쩍 벌어진다
+    const mkJaw=(geo,scaleY,mawSign,teeth)=>{
+      const g=new THREE.Group();
+      g.position.z=HINGE;
+      const sk=new THREE.Mesh(geo,mMonBody);
+      sk.position.z=-HINGE; sk.scale.set(.88,scaleY,.88);
+      g.add(sk);
+      // 반구는 뚫려 있어 벌리면 속이 비쳐 보인다. 갈라진 면을 어두운 살로 막는다
+      const maw=new THREE.Mesh(gMonMaw,mMonMaw);
+      maw.position.set(0,mawSign*.005,-HINGE);
+      maw.rotation.x=-mawSign*Math.PI/2;
+      g.add(maw);
+      const t=new THREE.Mesh(teeth,mMonTooth);
+      t.position.z=-HINGE; g.add(t);
+      this.head.add(g);
+      return g;
+    };
+    this.upperJaw=mkJaw(gMonSkullU,1.30, 1,gTU);   // 길쭉한 두개골
+    this.jaw     =mkJaw(gMonSkullL,0.95,-1,gTL);   // 얕은 아래턱
+    this.jawOpen=0;
 
     // 팔 — 정강이 근처까지 내려오는 비정상적인 길이 (어깨 1.82에서 1.40을 내려 0.42)
     // 어깨 축은 몸통 윗반지름(.115) 안쪽에 둔다. 밖으로 빼면 팔을 들었을 때 틈이 벌어진다
@@ -751,13 +808,9 @@ class Monster{
           if(mazeGrid[ngz]&&mazeGrid[ngz][ngx]===1){this.gx=ngx;this.gz=ngz;}
           this.path=null;
         }
-        // 3D 발소리 — 이동 속도에 비례한 주기로 자기 위치에서 발생
-        this.stepPhase += dt * spd * 1.5;
-        if(this.stepPhase >= Math.PI){
-          this.stepPhase -= Math.PI;
-          const ddx=this.wx-P.x, ddz=this.wz-P.z;
-          if(ddx*ddx+ddz*ddz < 30*30) monsterStep(this.wx,this.wz);
-        }
+        // 발소리는 아래 사지 애니메이션의 위상에서 직접 뽑는다 (this.anim이 π를 넘을 때
+        // = 발이 바닥을 딛는 순간). 예전에는 여기서 dt*spd*1.5라는 별도 계산을 썼는데,
+        // 실측상 눈에 보이는 걸음(3.02/s)과 소리(1.13/s)가 2.7배 어긋나 있었다.
       }
     }
     // 위치 자체가 이미 NaN이 됐다면 안전한 좌표로 즉시 복구 (렌더러 크래시 방지)
@@ -766,26 +819,60 @@ class Monster{
       if(!Number.isFinite(this.wx)||!Number.isFinite(this.wz)){this.wx=CELL;this.wz=CELL;this.gx=1;this.gz=1;}
     }
     // ── 사지 애니메이션 ──
-    // 임팩트는 실루엣이 아니라 움직임에서 나온다. 추격 중에는 진폭·속도를 크게 올려
-    // 팔을 정신없이 휘젓게 하고, 순찰 중에는 축 늘어진 채 느리게 흔들리게 한다.
+    // ★ 위상은 시간이 아니라 "실제로 간 거리"로 돈다. 시간으로 돌리면 다리가 도는 속도와
+    //   실제 이동 속도가 따로 놀아 발이 땅을 딛지 않고 허공을 젓는다(footskate).
+    //   실측: 시간 기반일 때 추격 중 다리가 필요한 것의 1.93배로 돌고 있었다
+    //   (실제 2.36m/s인데 보폭×걸음수는 4.57m/s). 순찰은 반대로 0.47배라 미끄러졌다.
+    //   거리 기반이면 순찰·추격·돌진 보정(×1.35)·레벨당 속도 증가까지 전부 자동으로 맞는다.
     const chasing=this.state==='chase';
-    this.anim+=dt*(chasing?(this.chargeT>0?12.5:9.5):3.6);   // 돌진 중엔 더 정신없이
-    const a=this.anim, sw=Math.sin(a), sw2=Math.sin(a*1.73+1.1), sw3=Math.sin(a*2.4);
-    const amp=chasing?1.25:0.30;
+    const legAmp=chasing?MON_STRIDE_CHASE:MON_STRIDE_WALK;
+    const stride=2*MON_LEG_LEN*Math.sin(legAmp);   // 다리 스윙이 만드는 한 걸음의 보폭(m)
+    const moved=Math.hypot(this.wx-this._px,this.wz-this._pz);
+    this._px=this.wx; this._pz=this.wz;
+    // 레벨 시작·순간이동으로 좌표가 크게 점프하면 위상이 미친 듯이 돌아간다. 한 프레임 상한.
+    let dPhase=Math.min(moved/stride*Math.PI, dt*14);
+    // 완전히 멈춰 있으면 위상이 얼어붙어 정지 화면이 된다. 아주 작은 숨쉬기만 섞는다.
+    if(dPhase<dt*0.5) dPhase=dt*0.5;
+    const animPrev=this.anim;
+    this.anim+=dPhase;
 
-    this.armL.rotation.x= sw*amp;                    // 앞뒤로 젓기 (좌우 반대 위상)
-    this.armR.rotation.x=-sw*amp;
-    this.armL.rotation.z= .22+(chasing? sw2*.75:0);  // 추격 시 옆으로도 벌어져 허우적거린다
-    this.armR.rotation.z=-.22-(chasing? sw2*.75:0);
-    this.foreL.rotation.x=chasing?-1.1+sw3*.85:-.34; // 팔꿈치 꺾임
-    this.foreR.rotation.x=chasing?-1.1-sw3*.85:-.30;
-    this.legL.rotation.x=-sw*(chasing?.62:.20);
-    this.legR.rotation.x= sw*(chasing?.62:.20);
-    this.head.rotation.z=sw2*(chasing?.26:.10);      // 고개를 가누지 못하는 느낌
-    this.head.rotation.x=chasing?.22:.10;
+    // 발소리 — 위상이 π를 넘을 때마다 한 걸음. 눈에 보이는 발과 정확히 같은 박자다.
+    // (실제로 이동 중일 때만. 제자리 숨쉬기로는 발소리가 나면 안 된다)
+    if(moved>1e-4 && Math.floor(this.anim/Math.PI)>Math.floor(animPrev/Math.PI)){
+      const ddx=this.wx-P.x, ddz=this.wz-P.z;
+      if(ddx*ddx+ddz*ddz < 30*30) monsterStep(this.wx,this.wz);
+    }
 
-    // 걸을 때 상하로 튀는 반동
-    this.group.position.set(this.wx,.1+Math.abs(sw)*(chasing?.055:.018),this.wz);
+    const a=this.anim, sw=Math.sin(a);
+    const swSlow=Math.sin(a*.5+.7);      // 다리와 약분되는 배수만 쓴다. 1.73배·2.4배처럼
+                                         // 약분 안 되는 주파수를 섞으면 영원히 같은 자세로
+                                         // 돌아오지 않아 눈에는 그냥 진동으로 읽힌다.
+    // 팔은 다리와 "같은 주파수, 반대 위상"으로 무겁게 흔들린다. 긴 팔이 성큼성큼 걷는
+    // 몸을 따라 늘어져 흔들리는 그림이다. 옆으로 휘젓지 않는다.
+    const armAmp=chasing?.62:.26;
+    this.armL.rotation.x=-sw*armAmp;
+    this.armR.rotation.x= sw*armAmp;
+    this.armL.rotation.z= .20+(chasing?.10:0)+swSlow*.05;
+    this.armR.rotation.z=-.20-(chasing?.10:0)-swSlow*.05;
+    // 팔꿈치는 거의 고정하고 살짝 지연시켜 따라오게만 한다
+    this.foreL.rotation.x=(chasing?-.62:-.34)-sw*.16;
+    this.foreR.rotation.x=(chasing?-.62:-.30)+sw*.16;
+    this.legL.rotation.x=-sw*legAmp;
+    this.legR.rotation.x= sw*legAmp;
+    // 고개는 고정한다. 흔들면 "가누지 못하는" 것이지 "노리는" 것이 아니다.
+    this.head.rotation.z=swSlow*(chasing?.05:.08);
+    this.head.rotation.x=chasing?.26:.10;
+
+    // 걸을 때 상하로 튀는 반동 — 보폭이 커진 만큼 한 걸음의 무게가 실린다
+    this.group.position.set(this.wx,.1+Math.abs(sw)*(chasing?.075:.022),this.wz);
+
+    // 입 — 발각하면 벌어지고 시야를 잃으면 다물린다. 즉시 여닫지 않고 보간한다.
+    const jawTarget=chasing?MON_JAW_OPEN:0;
+    this.jawOpen+=(jawTarget-this.jawOpen)*Math.min(1,dt*(chasing?11:4));
+    this.jaw.rotation.x=this.jawOpen;
+    // 위턱은 아주 조금만 젖힌다. 크게 젖히면 두개골이 통째로 들려 머리가 몸에서
+    // 떨어져 나온 것처럼 보인다(0.34에서 실제로 그랬다). 벌리는 일은 아래턱이 한다.
+    this.upperJaw.rotation.x=-this.jawOpen*.15;
 
     // 진행 방향을 바라본다. 각도차를 -π~π로 감아 최단 경로로 회전시켜야
     // ±π 경계에서 한 바퀴 헛도는 것을 막을 수 있다.
