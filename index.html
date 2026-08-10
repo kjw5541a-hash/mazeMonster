@@ -696,8 +696,18 @@ function blocked(nx,nz){
 }
 
 // ── MONSTER CLASS ──
+// 타입별 감각·속도 설정. 지오메트리/재질은 여기 넣지 않는다 — 그건 생성자의 메시
+// 분기가 직접 참조한다. standard는 기존 전역 상수와 값이 같아서, 도입 전후로
+// 동작이 완전히 동일하다(크롤러 도입 자체는 아직 스폰되지 않으므로 무효과).
+const MONSTER_TYPES = {
+  standard: { sightR: MON_SIGHT_R, hearR: MON_HEAR_R, hearMinSpd: 1.5, spdMul: 1.0  },
+  crawler:  { sightR: 5,           hearR: 6.5,         hearMinSpd: 0,   spdMul: 1.28 },
+};
+
 class Monster{
-  constructor(gx,gz,spd){
+  constructor(gx,gz,spd,type='standard'){
+    this.type=type;
+    this.cfg=MONSTER_TYPES[type];
     this._px=gx*CELL; this._pz=gz*CELL;   // 거리 기반 위상용 직전 좌표
     this.gx=gx;this.gz=gz;this.wx=gx*CELL;this.wz=gz*CELL;this.spd=spd;
     this.state='patrol';this.path=null;this.patrolTarget=null;
@@ -773,14 +783,14 @@ class Monster{
   seesPlayer(){
     const pgx=Math.round(P.x/CELL),pgz=Math.round(P.z/CELL);
     const dx=pgx-this.gx,dz=pgz-this.gz;
-    if(dx*dx+dz*dz>MON_SIGHT_R*MON_SIGHT_R)return false;
+    if(dx*dx+dz*dz>this.cfg.sightR*this.cfg.sightR)return false;
     return hasLOS(mazeGrid,MW,MH,this.gx,this.gz,pgx,pgz);
   }
   hearsPlayer(){
-    if(P.spd<1.5)return false;
+    if(P.spd<this.cfg.hearMinSpd)return false;
     const pgx=Math.round(P.x/CELL),pgz=Math.round(P.z/CELL);
     const dx=pgx-this.gx,dz=pgz-this.gz;
-    return dx*dx+dz*dz<=MON_HEAR_R*MON_HEAR_R;
+    return dx*dx+dz*dz<=this.cfg.hearR*this.cfg.hearR;
   }
   pickPatrol(){
     for(let i=0;i<30;i++){
