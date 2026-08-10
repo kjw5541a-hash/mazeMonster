@@ -319,6 +319,21 @@ const gMonLeg  =new THREE.CylinderGeometry(.058,.038,MON_LEG_LEN,6);
 // head Group이 아니라 몸통에 매달아야 고개를 돌려도 목이 따라 돌지 않는다.
 const gMonNeck =new THREE.CylinderGeometry(.058,.085,.26,6);
 
+// ── 크롤러 좀비 치수 ── 척추가 거의 수평인 낮은 네발 자세. 고관절·어깨가 같은 높이
+// (CRAWL_BODY_Y)라 팔이 뒷다리와 대칭인 앞다리 역할을 한다. 재질(mMonBody)과
+// 머리·입·이빨 시스템(mkJaw/toothRows, gMonSkull*)은 standard와 완전히 공유하고
+// 몸통·팔다리 치수만 다르다 — 새 재질·새 광원은 하나도 없다.
+const CRAWL_BODY_Y=0.42, CRAWL_HEAD_Y=0.56, CRAWL_HEAD_Z=0.40;
+const CRAWL_ANCHOR_X=.18, CRAWL_FRONT_Z=.30, CRAWL_REAR_Z=-.30;
+// 팔다리 뻗은 길이 = 고관절 높이 - 바닥(로컬 -0.10) — 서 있는 개체의 다리 길이 계산과
+// 같은 원리라 다리가 바닥에 닿는다. 팔은 두 마디(위팔+아래팔) 합이 같은 길이가 되게 나눈다.
+const CRAWL_LEG_LEN=CRAWL_BODY_Y+.10;
+const CRAWL_ARM_UPPER=.25, CRAWL_ARM_FORE=CRAWL_LEG_LEN-CRAWL_ARM_UPPER;
+const gCrawlTorso=new THREE.CylinderGeometry(.15,.13,.66,7);
+const gCrawlLeg  =new THREE.CylinderGeometry(.042,.030,CRAWL_LEG_LEN,6);
+const gCrawlArmU =new THREE.CylinderGeometry(.038,.032,CRAWL_ARM_UPPER,6);
+const gCrawlArmF =new THREE.CylinderGeometry(.032,.024,CRAWL_ARM_FORE,6);
+
 // ── 입 ──
 // 두개골을 위턱·아래턱 두 반구로 나눠 경첩처럼 벌린다. 사람 턱이 아니라 머리가 쩍 갈라지는
 // 모양이라 멀리서도 실루엣으로 읽힌다.
@@ -719,17 +734,27 @@ class Monster{
     this.anim=Math.random()*Math.PI*2;   // 개체마다 다른 위상으로 시작
     this.facing=0;
 
-    const torso=new THREE.Mesh(gMonTorso,mMonBody);
-    torso.position.y=(MON_HIP_Y+MON_SHO_Y)/2;
-    torso.rotation.x=0.16;               // 앞으로 굽은 자세
-    this.group.add(torso);
+    if(this.type==='crawler'){
+      // 낮은 네발 자세 — 세로 실린더를 눕혀 척추 방향(Z축)으로 삼는다.
+      const torso=new THREE.Mesh(gCrawlTorso,mMonBody);
+      torso.position.y=CRAWL_BODY_Y;
+      torso.rotation.x=Math.PI/2;
+      this.group.add(torso);
+    }else{
+      const torso=new THREE.Mesh(gMonTorso,mMonBody);
+      torso.position.y=(MON_HIP_Y+MON_SHO_Y)/2;
+      torso.rotation.x=0.16;               // 앞으로 굽은 자세
+      this.group.add(torso);
+    }
 
     // 머리는 회전축(head) 안에 위턱·아래턱 두 Group을 형제로 넣는다.
     // 두개골 메시에 준 비균등 스케일이 이빨로 상속되면 이빨이 같이 일그러지기 때문에,
     // 이빨은 반구의 자식이 아니라 턱 Group의 자식이어야 한다.
     // 눈도 이목구비도 없다 — 참고 사진의 개체는 얼굴이 없는 검은 덩어리다.
+    // (머리·입·이빨 자체는 두 타입이 완전히 공유한다 — 위치만 다르다)
     this.head=new THREE.Group();
-    this.head.position.y=MON_HEAD_Y;
+    if(this.type==='crawler') this.head.position.set(0,CRAWL_HEAD_Y,CRAWL_HEAD_Z);
+    else this.head.position.y=MON_HEAD_Y;
     this.group.add(this.head);
 
     const[gTU,gTL]=toothRows();
@@ -758,24 +783,42 @@ class Monster{
     this.jaw     =mkJaw(gMonSkullL,0.95,-1,gTL);   // 얕은 아래턱
     this.jawOpen=0;
 
-    // 목 — 아래턱이 벌어지면 머리 아래가 통째로 비어 천장이 그대로 비친다. 그 구멍을 막는다.
-    // head가 아니라 group의 자식이라 고개를 돌려도 목은 몸통에 붙어 있다.
-    const neck=new THREE.Mesh(gMonNeck,mMonBody);
-    neck.position.y=MON_SHO_Y+.02;
-    this.group.add(neck);
+    if(this.type==='crawler'){
+      // 목 — 낮은 몸통 앞쪽에서 머리 쪽으로 비스듬히 이어준다 (표준과 같은 이유로 필요:
+      // 아래턱이 벌어지면 머리 아래가 비어 천장이 비친다).
+      const neck=new THREE.Mesh(gMonNeck,mMonBody);
+      neck.position.set(0,(CRAWL_BODY_Y+CRAWL_HEAD_Y)/2,CRAWL_HEAD_Z*0.55);
+      neck.rotation.x=-Math.PI/3;
+      this.group.add(neck);
 
-    // 팔 — 정강이 근처까지 내려오는 비정상적인 길이 (어깨 1.82에서 1.40을 내려 0.42)
-    // 어깨 축은 몸통 윗반지름(MON_TORSO_RT)보다 바깥에 둔다. 안쪽에 두면 팔이 몸통 실루엣에
-    // 파묻혀 몸통이 끝나는 허리 높이에서야 밖으로 나오고, 어깨가 아래에 붙은 것처럼 보인다.
-    // ★ 왼팔만 MON_ARM_LONG_* 지오메트리로 — 좌우 비대칭이 "사람이 아니다"를 가장 직접적으로
-    //   전달한다. 애니메이션(위 sw 기반 회전)은 좌우 동일하게 걸리므로 손대지 않는다 —
-    //   같은 각도라도 팔이 길어 손끝이 훨씬 아래·바깥까지 쓸고 다니는 것만으로 충분하다.
-    this.armL=jointLimb(gMonUpperL,MON_ARM_LONG_UP,this.group,-MON_SHO_ARM_X,MON_SHO_Y);
-    this.armR=jointLimb(gMonUpper,.66,this.group, MON_SHO_ARM_X,MON_SHO_Y);
-    this.foreL=jointLimb(gMonForeL,MON_ARM_LONG_FORE,this.armL,0,-MON_ARM_LONG_UP);
-    this.foreR=jointLimb(gMonFore,.74,this.armR,0,-.66);
-    this.legL=jointLimb(gMonLeg,MON_LEG_LEN,this.group,-.075,MON_HIP_Y);
-    this.legR=jointLimb(gMonLeg,MON_LEG_LEN,this.group, .075,MON_HIP_Y);
+      // 팔이 앞다리, 다리가 뒷다리 — 네 다리 전부 어깨/고관절과 같은 높이(CRAWL_BODY_Y)에서
+      // 뻗어 나온다. 좌우 비대칭(standard의 왼팔) 없이 대칭 네발이다.
+      this.armL=jointLimb(gCrawlArmU,CRAWL_ARM_UPPER,this.group,-CRAWL_ANCHOR_X,CRAWL_BODY_Y,CRAWL_FRONT_Z);
+      this.armR=jointLimb(gCrawlArmU,CRAWL_ARM_UPPER,this.group, CRAWL_ANCHOR_X,CRAWL_BODY_Y,CRAWL_FRONT_Z);
+      this.foreL=jointLimb(gCrawlArmF,CRAWL_ARM_FORE,this.armL,0,-CRAWL_ARM_UPPER);
+      this.foreR=jointLimb(gCrawlArmF,CRAWL_ARM_FORE,this.armR,0,-CRAWL_ARM_UPPER);
+      this.legL=jointLimb(gCrawlLeg,CRAWL_LEG_LEN,this.group,-CRAWL_ANCHOR_X,CRAWL_BODY_Y,CRAWL_REAR_Z);
+      this.legR=jointLimb(gCrawlLeg,CRAWL_LEG_LEN,this.group, CRAWL_ANCHOR_X,CRAWL_BODY_Y,CRAWL_REAR_Z);
+    }else{
+      // 목 — 아래턱이 벌어지면 머리 아래가 통째로 비어 천장이 그대로 비친다. 그 구멍을 막는다.
+      // head가 아니라 group의 자식이라 고개를 돌려도 목은 몸통에 붙어 있다.
+      const neck=new THREE.Mesh(gMonNeck,mMonBody);
+      neck.position.y=MON_SHO_Y+.02;
+      this.group.add(neck);
+
+      // 팔 — 정강이 근처까지 내려오는 비정상적인 길이 (어깨 1.82에서 1.40을 내려 0.42)
+      // 어깨 축은 몸통 윗반지름(MON_TORSO_RT)보다 바깥에 둔다. 안쪽에 두면 팔이 몸통 실루엣에
+      // 파묻혀 몸통이 끝나는 허리 높이에서야 밖으로 나오고, 어깨가 아래에 붙은 것처럼 보인다.
+      // ★ 왼팔만 MON_ARM_LONG_* 지오메트리로 — 좌우 비대칭이 "사람이 아니다"를 가장 직접적으로
+      //   전달한다. 애니메이션(위 sw 기반 회전)은 좌우 동일하게 걸리므로 손대지 않는다 —
+      //   같은 각도라도 팔이 길어 손끝이 훨씬 아래·바깥까지 쓸고 다니는 것만으로 충분하다.
+      this.armL=jointLimb(gMonUpperL,MON_ARM_LONG_UP,this.group,-MON_SHO_ARM_X,MON_SHO_Y);
+      this.armR=jointLimb(gMonUpper,.66,this.group, MON_SHO_ARM_X,MON_SHO_Y);
+      this.foreL=jointLimb(gMonForeL,MON_ARM_LONG_FORE,this.armL,0,-MON_ARM_LONG_UP);
+      this.foreR=jointLimb(gMonFore,.74,this.armR,0,-.66);
+      this.legL=jointLimb(gMonLeg,MON_LEG_LEN,this.group,-.075,MON_HIP_Y);
+      this.legR=jointLimb(gMonLeg,MON_LEG_LEN,this.group, .075,MON_HIP_Y);
+    }
     this.group.position.set(this.wx,.1,this.wz);
     scene.add(this.group);worldObjs.push(this.group);
   }
