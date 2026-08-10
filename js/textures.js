@@ -65,6 +65,25 @@ export function makeWallpaper(size,aniso){
     blob(ctx,Math.random()*w,h*0.35+Math.random()*h*0.65,(10+Math.random()*26)*s,
          'rgba(86,66,26,0.28)',w,h);
 
+  // 핏자국 — 마른 갈색에 가깝게 낮은 채도로. 벽지 전체에 대비를 올리면
+  // 복도마다 똑같은 자리에 피가 있는 게 눈에 띄어 무늬처럼 반복돼 보인다.
+  // 그래서 개수를 물 얼룩보다도 적게 두고, 아래로 흘러내린 자국만 살짝 진하게 남긴다.
+  const blood=Math.max(1,Math.round(2*s*s));
+  for(let i=0;i<blood;i++){
+    const bx=Math.random()*w, by=h*0.2+Math.random()*h*0.5;
+    blob(ctx,bx,by,(7+Math.random()*13)*s,'rgba(70,18,14,0.40)',w,h);
+    const drips=1+Math.floor(Math.random()*3);
+    for(let d=0;d<drips;d++){
+      const dx=bx+(Math.random()*18-9)*s;
+      const len=(18+Math.random()*46)*s;
+      const gr2=ctx.createLinearGradient(dx,by,dx,by+len);
+      gr2.addColorStop(0,'rgba(70,18,14,0.34)');
+      gr2.addColorStop(1,'rgba(70,18,14,0)');
+      ctx.fillStyle=gr2;
+      ctx.fillRect(dx-1*s,by,Math.max(1,2*s),len);
+    }
+  }
+
   // 미세 그레인
   const grain=Math.max(220,Math.round(900*s*s));
   for(let i=0;i<grain;i++){
@@ -137,6 +156,51 @@ export function makeDropCeiling(size,aniso){
     ctx.fillStyle='rgba(240,238,226,0.55)';
     ctx.fillRect(p-lw/2,0,Math.max(1,.8*s),h);
     ctx.fillRect(0,p-lw/2,w,Math.max(1,.8*s));
+  }
+  return finishTex(new THREE.CanvasTexture(c),1,aniso);
+}
+
+// 스프레이 화살표 낙서 — 출구 방향을 알려주는 척하지만 실제로는 벽 구조를 모르는
+// "이 미로를 먼저 헤맨 누군가"가 대충 그은 직선 나침반이다(부정확해도 된다는 게 설계).
+// 그래서 항상 캔버스 위쪽(로컬 +Y)을 가리키게만 그려 두고, 실제 출구 방향으로
+// 돌리는 건 index.html이 배치할 때 plane 전체를 회전시켜서 한다.
+// 배경은 채우지 않는다 — 바닥 위에 겹쳐 그려지는 데칼이라 알파 있는 부분만 남아야 한다.
+function dab(ctx,x,y,r,color){
+  const g=ctx.createRadialGradient(x,y,0,x,y,r);
+  g.addColorStop(0,color);g.addColorStop(1,'transparent');
+  ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();
+}
+export function makeArrowDecal(size,aniso){
+  const w=size,h=size,s=size/256;
+  const c=document.createElement('canvas');c.width=w;c.height=h;
+  const ctx=c.getContext('2d');
+
+  const col='rgba(176,34,24,0.82)';   // 마른 핏빛에 가까운 붉은 스프레이
+  const cx=w/2;
+
+  // 화살대 — 세로 막대를 점묘로 채운다 (매끈한 사각형이면 스텐실처럼 보인다)
+  const shaftTop=h*0.30, shaftBot=h*0.84, shaftW=w*0.085;
+  const shaftN=Math.max(60,Math.round(420*s*s));
+  for(let i=0;i<shaftN;i++){
+    const y=shaftTop+(shaftBot-shaftTop)*Math.random();
+    const x=cx+(Math.random()*2-1)*shaftW;
+    dab(ctx,x,y,(2+Math.random()*3)*s,col);
+  }
+  // 화살촉 — 꼭짓점(위)에서 밑변(아래)으로 갈수록 넓어지는 삼각형을 점으로 채운다
+  const headTop=h*0.09, headBot=shaftTop+h*0.05, headW=w*0.24;
+  const headN=Math.max(50,Math.round(380*s*s));
+  for(let i=0;i<headN;i++){
+    const t=Math.random();
+    const y=headTop+(headBot-headTop)*t;
+    const x=cx+(Math.random()*2-1)*headW*t;
+    dab(ctx,x,y,(2+Math.random()*3)*s,col);
+  }
+  // 오버스프레이 — 캔 노즐 주변에 흩날리는 옅은 안개
+  const mistN=Math.max(20,Math.round(140*s*s));
+  for(let i=0;i<mistN;i++){
+    const x=cx+(Math.random()*2-1)*w*0.30;
+    const y=headTop+Math.random()*(shaftBot-headTop);
+    dab(ctx,x,y,(1+Math.random()*2)*s,col);
   }
   return finishTex(new THREE.CanvasTexture(c),1,aniso);
 }

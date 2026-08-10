@@ -184,7 +184,7 @@ import { CELL,WALL_H,MAZE_MIN,MAZE_MAX,MAZE_STEP,mazeSizeFor,
          CHARGE_TIME,CHARGE_BOOST,SNARL_MIN,SNARL_VAR } from './js/constants.js';
 import { QUALITY_PRESETS,QKEY,QNAME,Q,isMobile,detectQuality } from './js/quality.js';
 import { generateMaze,bfsDistances,bfsNext,hasLOS } from './js/maze.js';
-import { makeWallpaper,makeCarpet,makeDropCeiling } from './js/textures.js';
+import { makeWallpaper,makeCarpet,makeDropCeiling,makeArrowDecal } from './js/textures.js';
 import { unlockAudio,updateAudioListener,footstep,monsterStep,playGrowl,panelBuzz,
          playShriek,heartbeat,playDeath,playEscape,playKeyPickup,playLocked } from './js/audio.js';
 import { progress,loadProgress,markLevel,markEscape,resetRun } from './js/save.js';
@@ -240,6 +240,7 @@ const ANISO=Q.aniso===0?MAX_ANISO:Math.min(Q.aniso,MAX_ANISO);
 const wallMap =makeWallpaper(Q.texSize,ANISO);
 const floorMap=makeCarpet(Q.texSize,ANISO);
 const ceilMap =makeDropCeiling(Q.texSize,ANISO);
+const arrowMap =makeArrowDecal(Q.texSize,ANISO);
 
 // 재질 팩토리 — LOW/MEDIUM은 MeshPhongMaterial로 대체한다.
 // MeshLambertMaterial을 쓰지 않는 이유: r128의 Lambert는 정점 단위(Gouraud) 조명이라
@@ -276,6 +277,9 @@ const mCeilDark=mkMat({map:ceilMap, color:0x6e6a5c,roughness:.90,metalness:.02})
 // 한 번 바꾸면 모든 형광판이 한꺼번에 반응한다 — 개수·드로우콜 변화 없이 공짜다.
 const mPanel  =mkMat({color:0xffffff,emissive:0xfff6dc,emissiveIntensity:MPANEL_EI});
 const mExit   =mkMat({color:0x00ff88,emissive:0x00ff88,emissiveIntensity:1.6,transparent:true,opacity:.88});
+// 스프레이 화살표 데칼 — 바닥에 눕혀 붙이는 알파 텍스처. 광원을 늘리지 않는 순수 장식이라
+// mCeil처럼 emissive를 줄 필요는 없고, 바닥 조명을 그대로 받아도 충분히 보인다.
+const mArrow  =mkMat({map:arrowMap,color:0xffffff,transparent:true,opacity:.9,side:THREE.DoubleSide});
 // 몬스터 — 빛을 전혀 받지 않는 순수한 검정. MeshBasicMaterial은 조명 계산을 아예 건너뛰므로
 // 어떤 밝기에서도 실루엣이 보장되고, Phong/Standard보다 오히려 싸다.
 // (mkMat을 쓰지 않는 유일한 예외다. mkMat은 roughness/metalness를 셰이딩 파라미터로
@@ -371,6 +375,8 @@ const gKeyTooth=new THREE.BoxGeometry(.055,.038,.021);
 const gDoorSlab=new THREE.BoxGeometry(1.18,2.0,.14);
 const gLockBody=new THREE.BoxGeometry(.19,.17,.09);
 const gLockShkl=new THREE.TorusGeometry(.068,.021,6,12,Math.PI);
+// 스프레이 화살표 데칼 — 바닥에 눕혀 붙인다. 칸(CELL) 안에 들어가되 벽에 닿지 않게 약간 작게.
+const gArrowDecal=new THREE.PlaneGeometry(CELL*0.85,CELL*0.85);
 
 // ── PLAYER ──
 const P={x:CELL,z:CELL,yaw:0,targetYaw:0,pitch:0,vx:0,vz:0,spd:0};
@@ -476,6 +482,9 @@ let cachedPortal=null,cachedExitLight=null,cachedExitRing=null;
 // 출구를 잠그면 그 문제가 사라지고(문 앞은 언제나 전부 도달 가능) 규칙도 명확해진다.
 let hasKey=false, keyPos={x:1,z:1};
 let keyMesh=null, doorGroup=null;
+// 스프레이 화살표 — 레벨당 무작위 길 칸 1곳. 정확한 길찾기 힌트가 아니라 분위기용 장치다
+// (자세한 이유는 startLevel의 배치 코드 주석 참고). 미니맵이 여전히 유일한 진짜 단서다.
+let arrowPos={x:1,z:1}, arrowGroup=null;
 function isWall(gx,gz){if(gx<0||gz<0||gx>=MW||gz>=MH)return true;return mazeGrid[gz][gx]===0;}
 function addO(o){scene.add(o);worldObjs.push(o);return o;}
 
@@ -644,6 +653,20 @@ function buildWorld(){
   const kt2=new THREE.Mesh(gKeyTooth,mKey); kt2.position.set(.036,-.075,0); keyMesh.add(kt2);
   keyMesh.position.set(keyPos.x*CELL,1.0,keyPos.z*CELL);
   addO(keyMesh);
+
+  // ── 스프레이 화살표 ── 바닥에 눕혀 두고 그룹 회전만으로 방향을 준다.
+  // gArrowDecal의 기본 법선은 +Z. rotation.x=-PI/2로 눕히면 로컬 +Z가 +Y(위)를 향하고,
+  // 이때 캔버스 위쪽(로컬 +Y, 화살표가 그려진 방향)은 세계 -Z를 향하게 된다.
+  // 그 상태에서 바깥 그룹을 rotation.y=atan2(-dx,-dz)만큼 돌리면, 플레이어 yaw와
+  // 정확히 같은 공식으로 (dx,dz) 방향 — 즉 출구 쪽 — 을 가리키게 된다.
+  arrowGroup=new THREE.Group();
+  const arrowPlane=new THREE.Mesh(gArrowDecal,mArrow);
+  arrowPlane.rotation.x=-Math.PI/2;
+  arrowGroup.add(arrowPlane);
+  const adx=exitPos.x-arrowPos.x, adz=exitPos.z-arrowPos.z;
+  arrowGroup.rotation.y=Math.atan2(-adx,-adz);
+  arrowGroup.position.set(arrowPos.x*CELL,.018,arrowPos.z*CELL);
+  addO(arrowGroup);
 
   applyKeyState();
 
@@ -1117,6 +1140,15 @@ function startLevel(lv){
       pDist[r*MW+c]>=far*0.45 && !(c===exit[0]&&r===exit[1]));
     const k=cand.length?cand[(Math.random()*cand.length)|0]:start;
     keyPos={x:k[0],z:k[1]};
+  }
+  // 스프레이 화살표 배치 — 시작·출구 칸을 제외한 무작위 길 칸 1곳.
+  // 직선(나침반) 방향만 가리키므로 벽을 사이에 두면 틀릴 수 있다 — 의도된 부정확함이다.
+  // ⚠ buildWorld()가 이 값을 읽어 데칼을 놓으므로 반드시 그 앞에서 정한다(keyPos와 동일한 이유).
+  {
+    const cand=pathCells.filter(([c,r])=>
+      !(c===start[0]&&r===start[1]) && !(c===exit[0]&&r===exit[1]));
+    const a=cand.length?cand[(Math.random()*cand.length)|0]:start;
+    arrowPos={x:a[0],z:a[1]};
   }
   buildWorld();initVisited();updateVisibility();drawMM();
   const cnt=MON_COUNT(lv),spd=MON_BASE_SPD*(1+MON_SPD_INC*(lv-1));
