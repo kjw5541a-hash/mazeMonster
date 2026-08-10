@@ -319,6 +319,24 @@ const gMonLeg  =new THREE.CylinderGeometry(.058,.038,MON_LEG_LEN,6);
 // head Group이 아니라 몸통에 매달아야 고개를 돌려도 목이 따라 돌지 않는다.
 const gMonNeck =new THREE.CylinderGeometry(.058,.085,.26,6);
 
+// ── 크롤러 좀비 치수 ── 배가 바닥에 붙는 절지동물 자세. 다리 넷이 전부 몸통 옆에서
+// 위·바깥으로 뻗었다가(관절1) 무릎에서 한 번 꺾여 다시 바닥으로 내려온다(관절2) —
+// 거미 다리의 실루엣. 재질(mMonBody)과 머리·입·이빨 시스템(mkJaw/toothRows,
+// gMonSkull*)은 standard와 완전히 공유한다 — 새 재질·새 광원은 하나도 없다.
+const CRAWL_BODY_Y=0.03;              // 배가 거의 바닥(로컬 -0.10)에 붙는 높이
+const CRAWL_HEAD_Y=0.30, CRAWL_HEAD_Z=0.36;
+const CRAWL_LEG_ANCHOR_Y=0.10;        // 다리는 배보다 살짝 위, 몸통 옆면에서 뻗어 나온다
+const CRAWL_ANCHOR_X=.15, CRAWL_FRONT_Z=.26, CRAWL_REAR_Z=-.26;
+const CRAWL_LEG_UPPER=.30, CRAWL_LEG_LOWER=.40;
+// 관절1은 몸통에서 위·바깥으로(135°), 관절2는 무릎에서 다시 거의 바로 아래로 꺾인다(11°).
+// LOWER_LOCAL은 "관절2의 부모 기준 상대 회전" — 관절1의 회전을 상쇄하고 원하는 절대각
+// (LOWER_WORLD)을 만들도록 역산한 값이다.
+const CRAWL_UPPER_SPLAY=Math.PI*0.75, CRAWL_LOWER_WORLD=Math.PI*0.06;
+const CRAWL_LOWER_LOCAL=CRAWL_LOWER_WORLD-CRAWL_UPPER_SPLAY;
+const gCrawlTorso=new THREE.CylinderGeometry(.14,.12,.60,7);
+const gCrawlLegU =new THREE.CylinderGeometry(.036,.030,CRAWL_LEG_UPPER,6);
+const gCrawlLegF =new THREE.CylinderGeometry(.028,.020,CRAWL_LEG_LOWER,6);
+
 // ── 입 ──
 // 두개골을 위턱·아래턱 두 반구로 나눠 경첩처럼 벌린다. 사람 턱이 아니라 머리가 쩍 갈라지는
 // 모양이라 멀리서도 실루엣으로 읽힌다.
@@ -696,8 +714,18 @@ function blocked(nx,nz){
 }
 
 // ── MONSTER CLASS ──
+// 타입별 감각·속도 설정. 지오메트리/재질은 여기 넣지 않는다 — 그건 생성자의 메시
+// 분기가 직접 참조한다. standard는 기존 전역 상수와 값이 같아서, 도입 전후로
+// 동작이 완전히 동일하다(크롤러 도입 자체는 아직 스폰되지 않으므로 무효과).
+const MONSTER_TYPES = {
+  standard: { sightR: MON_SIGHT_R, hearR: MON_HEAR_R, hearMinSpd: 1.5, spdMul: 1.0  },
+  crawler:  { sightR: 5,           hearR: 6.5,         hearMinSpd: 0,   spdMul: 1.28 },
+};
+
 class Monster{
-  constructor(gx,gz,spd){
+  constructor(gx,gz,spd,type='standard'){
+    this.type=type;
+    this.cfg=MONSTER_TYPES[type];
     this._px=gx*CELL; this._pz=gz*CELL;   // 거리 기반 위상용 직전 좌표
     this.gx=gx;this.gz=gz;this.wx=gx*CELL;this.wz=gz*CELL;this.spd=spd;
     this.state='patrol';this.path=null;this.patrolTarget=null;
@@ -709,17 +737,27 @@ class Monster{
     this.anim=Math.random()*Math.PI*2;   // 개체마다 다른 위상으로 시작
     this.facing=0;
 
-    const torso=new THREE.Mesh(gMonTorso,mMonBody);
-    torso.position.y=(MON_HIP_Y+MON_SHO_Y)/2;
-    torso.rotation.x=0.16;               // 앞으로 굽은 자세
-    this.group.add(torso);
+    if(this.type==='crawler'){
+      // 낮은 네발 자세 — 세로 실린더를 눕혀 척추 방향(Z축)으로 삼는다.
+      const torso=new THREE.Mesh(gCrawlTorso,mMonBody);
+      torso.position.y=CRAWL_BODY_Y;
+      torso.rotation.x=Math.PI/2;
+      this.group.add(torso);
+    }else{
+      const torso=new THREE.Mesh(gMonTorso,mMonBody);
+      torso.position.y=(MON_HIP_Y+MON_SHO_Y)/2;
+      torso.rotation.x=0.16;               // 앞으로 굽은 자세
+      this.group.add(torso);
+    }
 
     // 머리는 회전축(head) 안에 위턱·아래턱 두 Group을 형제로 넣는다.
     // 두개골 메시에 준 비균등 스케일이 이빨로 상속되면 이빨이 같이 일그러지기 때문에,
     // 이빨은 반구의 자식이 아니라 턱 Group의 자식이어야 한다.
     // 눈도 이목구비도 없다 — 참고 사진의 개체는 얼굴이 없는 검은 덩어리다.
+    // (머리·입·이빨 자체는 두 타입이 완전히 공유한다 — 위치만 다르다)
     this.head=new THREE.Group();
-    this.head.position.y=MON_HEAD_Y;
+    if(this.type==='crawler') this.head.position.set(0,CRAWL_HEAD_Y,CRAWL_HEAD_Z);
+    else this.head.position.y=MON_HEAD_Y;
     this.group.add(this.head);
 
     const[gTU,gTL]=toothRows();
@@ -748,24 +786,49 @@ class Monster{
     this.jaw     =mkJaw(gMonSkullL,0.95,-1,gTL);   // 얕은 아래턱
     this.jawOpen=0;
 
-    // 목 — 아래턱이 벌어지면 머리 아래가 통째로 비어 천장이 그대로 비친다. 그 구멍을 막는다.
-    // head가 아니라 group의 자식이라 고개를 돌려도 목은 몸통에 붙어 있다.
-    const neck=new THREE.Mesh(gMonNeck,mMonBody);
-    neck.position.y=MON_SHO_Y+.02;
-    this.group.add(neck);
+    if(this.type==='crawler'){
+      // 목 — 낮은 몸통 앞쪽에서 머리 쪽으로 비스듬히 이어준다 (표준과 같은 이유로 필요:
+      // 아래턱이 벌어지면 머리 아래가 비어 천장이 비친다).
+      const neck=new THREE.Mesh(gMonNeck,mMonBody);
+      neck.position.set(0,(CRAWL_BODY_Y+CRAWL_HEAD_Y)/2,CRAWL_HEAD_Z*0.55);
+      neck.rotation.x=-Math.PI/2.2;
+      this.group.add(neck);
 
-    // 팔 — 정강이 근처까지 내려오는 비정상적인 길이 (어깨 1.82에서 1.40을 내려 0.42)
-    // 어깨 축은 몸통 윗반지름(MON_TORSO_RT)보다 바깥에 둔다. 안쪽에 두면 팔이 몸통 실루엣에
-    // 파묻혀 몸통이 끝나는 허리 높이에서야 밖으로 나오고, 어깨가 아래에 붙은 것처럼 보인다.
-    // ★ 왼팔만 MON_ARM_LONG_* 지오메트리로 — 좌우 비대칭이 "사람이 아니다"를 가장 직접적으로
-    //   전달한다. 애니메이션(위 sw 기반 회전)은 좌우 동일하게 걸리므로 손대지 않는다 —
-    //   같은 각도라도 팔이 길어 손끝이 훨씬 아래·바깥까지 쓸고 다니는 것만으로 충분하다.
-    this.armL=jointLimb(gMonUpperL,MON_ARM_LONG_UP,this.group,-MON_SHO_ARM_X,MON_SHO_Y);
-    this.armR=jointLimb(gMonUpper,.66,this.group, MON_SHO_ARM_X,MON_SHO_Y);
-    this.foreL=jointLimb(gMonForeL,MON_ARM_LONG_FORE,this.armL,0,-MON_ARM_LONG_UP);
-    this.foreR=jointLimb(gMonFore,.74,this.armR,0,-.66);
-    this.legL=jointLimb(gMonLeg,MON_LEG_LEN,this.group,-.075,MON_HIP_Y);
-    this.legR=jointLimb(gMonLeg,MON_LEG_LEN,this.group, .075,MON_HIP_Y);
+      // 다리 넷 — 전부 같은 구조(관절 2개: 위 마디는 위·바깥, 아래 마디는 무릎에서
+      // 꺾여 바닥으로). sx=-1(왼쪽)/+1(오른쪽)이 splay 방향을 좌우로 뒤집는다.
+      // 프로퍼티 이름(armL/legR 등)은 표준 몬스터와 맞춰 뒀다 — update()가 타입별로
+      // 갈라지므로 이름 자체엔 의미가 없고, 걸음 코드에서 짝을 지어 쓸 때 참조한다.
+      const mkSpiderLeg=(sx,z)=>{
+        const upper=jointLimb(gCrawlLegU,CRAWL_LEG_UPPER,this.group,sx*CRAWL_ANCHOR_X,CRAWL_LEG_ANCHOR_Y,z);
+        upper.rotation.z=sx*CRAWL_UPPER_SPLAY;
+        const lower=jointLimb(gCrawlLegF,CRAWL_LEG_LOWER,upper,0,-CRAWL_LEG_UPPER);
+        lower.rotation.z=sx*CRAWL_LOWER_LOCAL;
+        return [upper,lower];
+      };
+      [this.armL,this.foreL]=mkSpiderLeg(-1,CRAWL_FRONT_Z);
+      [this.armR,this.foreR]=mkSpiderLeg( 1,CRAWL_FRONT_Z);
+      [this.legL,this.shinL]=mkSpiderLeg(-1,CRAWL_REAR_Z);
+      [this.legR,this.shinR]=mkSpiderLeg( 1,CRAWL_REAR_Z);
+    }else{
+      // 목 — 아래턱이 벌어지면 머리 아래가 통째로 비어 천장이 그대로 비친다. 그 구멍을 막는다.
+      // head가 아니라 group의 자식이라 고개를 돌려도 목은 몸통에 붙어 있다.
+      const neck=new THREE.Mesh(gMonNeck,mMonBody);
+      neck.position.y=MON_SHO_Y+.02;
+      this.group.add(neck);
+
+      // 팔 — 정강이 근처까지 내려오는 비정상적인 길이 (어깨 1.82에서 1.40을 내려 0.42)
+      // 어깨 축은 몸통 윗반지름(MON_TORSO_RT)보다 바깥에 둔다. 안쪽에 두면 팔이 몸통 실루엣에
+      // 파묻혀 몸통이 끝나는 허리 높이에서야 밖으로 나오고, 어깨가 아래에 붙은 것처럼 보인다.
+      // ★ 왼팔만 MON_ARM_LONG_* 지오메트리로 — 좌우 비대칭이 "사람이 아니다"를 가장 직접적으로
+      //   전달한다. 애니메이션(위 sw 기반 회전)은 좌우 동일하게 걸리므로 손대지 않는다 —
+      //   같은 각도라도 팔이 길어 손끝이 훨씬 아래·바깥까지 쓸고 다니는 것만으로 충분하다.
+      this.armL=jointLimb(gMonUpperL,MON_ARM_LONG_UP,this.group,-MON_SHO_ARM_X,MON_SHO_Y);
+      this.armR=jointLimb(gMonUpper,.66,this.group, MON_SHO_ARM_X,MON_SHO_Y);
+      this.foreL=jointLimb(gMonForeL,MON_ARM_LONG_FORE,this.armL,0,-MON_ARM_LONG_UP);
+      this.foreR=jointLimb(gMonFore,.74,this.armR,0,-.66);
+      this.legL=jointLimb(gMonLeg,MON_LEG_LEN,this.group,-.075,MON_HIP_Y);
+      this.legR=jointLimb(gMonLeg,MON_LEG_LEN,this.group, .075,MON_HIP_Y);
+    }
     this.group.position.set(this.wx,.1,this.wz);
     scene.add(this.group);worldObjs.push(this.group);
   }
@@ -773,14 +836,14 @@ class Monster{
   seesPlayer(){
     const pgx=Math.round(P.x/CELL),pgz=Math.round(P.z/CELL);
     const dx=pgx-this.gx,dz=pgz-this.gz;
-    if(dx*dx+dz*dz>MON_SIGHT_R*MON_SIGHT_R)return false;
+    if(dx*dx+dz*dz>this.cfg.sightR*this.cfg.sightR)return false;
     return hasLOS(mazeGrid,MW,MH,this.gx,this.gz,pgx,pgz);
   }
   hearsPlayer(){
-    if(P.spd<1.5)return false;
+    if(P.spd<this.cfg.hearMinSpd)return false;
     const pgx=Math.round(P.x/CELL),pgz=Math.round(P.z/CELL);
     const dx=pgx-this.gx,dz=pgz-this.gz;
-    return dx*dx+dz*dz<=MON_HEAR_R*MON_HEAR_R;
+    return dx*dx+dz*dz<=this.cfg.hearR*this.cfg.hearR;
   }
   pickPatrol(){
     for(let i=0;i<30;i++){
@@ -925,27 +988,46 @@ class Monster{
     }
 
     const a=this.anim, sw=Math.sin(a);
-    const swSlow=Math.sin(a*.5+.7);      // 다리와 약분되는 배수만 쓴다. 1.73배·2.4배처럼
-                                         // 약분 안 되는 주파수를 섞으면 영원히 같은 자세로
-                                         // 돌아오지 않아 눈에는 그냥 진동으로 읽힌다.
-    // 팔은 다리와 "같은 주파수, 반대 위상"으로 무겁게 흔들린다. 긴 팔이 성큼성큼 걷는
-    // 몸을 따라 늘어져 흔들리는 그림이다. 옆으로 휘젓지 않는다.
-    const armAmp=chasing?.62:.26;
-    this.armL.rotation.x=-sw*armAmp;
-    this.armR.rotation.x= sw*armAmp;
-    this.armL.rotation.z= .20+(chasing?.10:0)+swSlow*.05;
-    this.armR.rotation.z=-.20-(chasing?.10:0)-swSlow*.05;
-    // 팔꿈치는 거의 고정하고 살짝 지연시켜 따라오게만 한다
-    this.foreL.rotation.x=(chasing?-.62:-.34)-sw*.16;
-    this.foreR.rotation.x=(chasing?-.62:-.30)+sw*.16;
-    this.legL.rotation.x=-sw*legAmp;
-    this.legR.rotation.x= sw*legAmp;
-    // 고개는 고정한다. 흔들면 "가누지 못하는" 것이지 "노리는" 것이 아니다.
-    this.head.rotation.z=swSlow*(chasing?.05:.08);
-    this.head.rotation.x=chasing?.26:.10;
+    let bobAmt;
+    if(this.type==='crawler'){
+      // 절지동물 걸음 — 대각선 두 다리(앞왼쪽+뒤오른쪽 / 앞오른쪽+뒤왼쪽)가 짝을 이뤄
+      // 반대 위상으로 움직인다. 위 마디(관절1)는 앞뒤로 크게, 아래 마디(관절2)는 작고
+      // 살짝 지연되게 흔든다 — standard 팔꿈치가 "거의 고정 + 살짝 지연"인 것과 같은 원리.
+      // splay/굽힘(생성자에서 정한 rotation.z)은 건드리지 않는다 — 정적인 다리 형태고,
+      // 걷는 움직임은 X축(앞뒤 스윙)만으로 표현한다. 이동 중일 때만, 속도에 비례해서 흔든다.
+      const speedFrac=moved>1e-4?Math.min(1,spd/(MON_BASE_SPD*2.5)):0;
+      const upperAmp=speedFrac*0.6, lowerAmp=speedFrac*0.30;
+      const swA=sw*upperAmp, swB=-sw*upperAmp;      // 대각선 쌍이 반대 위상
+      this.armL.rotation.x=swA; this.legR.rotation.x=swA;
+      this.armR.rotation.x=swB; this.legL.rotation.x=swB;
+      this.foreL.rotation.x= sw*lowerAmp; this.shinR.rotation.x= sw*lowerAmp;
+      this.foreR.rotation.x=-sw*lowerAmp; this.shinL.rotation.x=-sw*lowerAmp;
+      this.head.rotation.z=0; this.head.rotation.x=0.08;   // 고개를 든 채 거의 고정
+      bobAmt=Math.abs(sw)*speedFrac*0.04;
+    }else{
+      const swSlow=Math.sin(a*.5+.7);      // 다리와 약분되는 배수만 쓴다. 1.73배·2.4배처럼
+                                           // 약분 안 되는 주파수를 섞으면 영원히 같은 자세로
+                                           // 돌아오지 않아 눈에는 그냥 진동으로 읽힌다.
+      // 팔은 다리와 "같은 주파수, 반대 위상"으로 무겁게 흔들린다. 긴 팔이 성큼성큼 걷는
+      // 몸을 따라 늘어져 흔들리는 그림이다. 옆으로 휘젓지 않는다.
+      const armAmp=chasing?.62:.26;
+      this.armL.rotation.x=-sw*armAmp;
+      this.armR.rotation.x= sw*armAmp;
+      this.armL.rotation.z= .20+(chasing?.10:0)+swSlow*.05;
+      this.armR.rotation.z=-.20-(chasing?.10:0)-swSlow*.05;
+      // 팔꿈치는 거의 고정하고 살짝 지연시켜 따라오게만 한다
+      this.foreL.rotation.x=(chasing?-.62:-.34)-sw*.16;
+      this.foreR.rotation.x=(chasing?-.62:-.30)+sw*.16;
+      this.legL.rotation.x=-sw*legAmp;
+      this.legR.rotation.x= sw*legAmp;
+      // 고개는 고정한다. 흔들면 "가누지 못하는" 것이지 "노리는" 것이 아니다.
+      this.head.rotation.z=swSlow*(chasing?.05:.08);
+      this.head.rotation.x=chasing?.26:.10;
+      bobAmt=Math.abs(sw)*(chasing?.075:.022);
+    }
 
     // 걸을 때 상하로 튀는 반동 — 보폭이 커진 만큼 한 걸음의 무게가 실린다
-    this.group.position.set(this.wx,.1+Math.abs(sw)*(chasing?.075:.022),this.wz);
+    this.group.position.set(this.wx,.1+bobAmt,this.wz);
 
     // 입 — 발각하면 벌어지고 시야를 잃으면 다물린다. 즉시 여닫지 않고 보간한다.
     const jawTarget=chasing?MON_JAW_OPEN:0;
@@ -1153,7 +1235,13 @@ function startLevel(lv){
   buildWorld();initVisited();updateVisibility();drawMM();
   const cnt=MON_COUNT(lv),spd=MON_BASE_SPD*(1+MON_SPD_INC*(lv-1));
   const minSpawn=Math.max(8,Math.floor(MW*0.35));
-  for(let i=0;i<cnt;i++){const[gx,gz]=findSpawn(pDist,minSpawn);monsters.push(new Monster(gx,gz,spd));}
+  // 레벨 3부터 슬롯 중 최대 1개를 크롤러로 교체한다. 총 마릿수(MON_COUNT)와
+  // 광원 개수(크롤러도 mMonBody 뿐이라 광원을 안 만든다)는 그대로 — 타입 구성만 바뀐다.
+  for(let i=0;i<cnt;i++){
+    const[gx,gz]=findSpawn(pDist,minSpawn);
+    const type=(lv>=3&&i===0)?'crawler':'standard';
+    monsters.push(new Monster(gx,gz,spd*MONSTER_TYPES[type].spdMul,type));
+  }
   updateMonBar(cnt);
   document.getElementById('hudLv').textContent=lv;
   document.getElementById('hudSt').textContent=0;
