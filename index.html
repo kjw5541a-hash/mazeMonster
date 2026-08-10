@@ -219,6 +219,23 @@ scene.add(camera);
 // 이 값이 "천장등이 없는 구역의 밝기"를 정한다. 칠흑이 아니라 어두운 황토색이어야 한다.
 scene.add(new THREE.AmbientLight(0x4a4740,Q.ambient));
 
+// 손전등 — 정전 때만 켜지는 SpotLight. 광원 "개수"가 늘어나는 유일한 예외이므로
+// 항상 씬에 존재시키고 평소엔 intensity=0으로만 끈다(최우선 규칙 1·2번).
+// target을 camera의 자식으로 두면 카메라가 매 프레임 이동·회전할 때 광원과 조준점이
+// 자동으로 따라온다 — P.yaw/P.pitch를 따로 읽어 방향을 계산할 필요가 없다.
+const FLASH_DISTANCE=9, FLASH_ANGLE=0.22, FLASH_PENUMBRA=0.5, FLASH_INTENSITY=3.0;
+const flashlight=new THREE.SpotLight(0xfff4d6,0,FLASH_DISTANCE,FLASH_ANGLE,FLASH_PENUMBRA,2);
+// ⚠ SpotLight/DirectionalLight는 기본 position이 (0,0,0)이 아니라 (0,1,0)이다
+// ("위에서 아래로 비추는 조명"이 기본 가정이라서다). 그대로 두면 카메라보다 1m 위에서
+// 눈높이의 조준점을 향해 쏘게 되어, 시선이 정면이어도 빔이 아래로 45° 꺾여 바닥을 비춘다.
+// 카메라와 같은 자리에 둬야 시선 방향과 빔 방향이 일치한다.
+flashlight.position.set(0,0,0);
+const flashTarget=new THREE.Object3D();
+flashTarget.position.set(0,0,-1);
+camera.add(flashTarget);
+flashlight.target=flashTarget;
+camera.add(flashlight);
+
 const ANISO=Q.aniso===0?MAX_ANISO:Math.min(Q.aniso,MAX_ANISO);
 const wallMap =makeWallpaper(Q.texSize,ANISO);
 const floorMap=makeCarpet(Q.texSize,ANISO);
@@ -246,13 +263,18 @@ const mFloor =mkMat({map:floorMap,color:0xffffff,roughness:.98,metalness:.0});
 // 천장만 emissive를 준다. 천장등이 천장과 거의 같은 평면에 있어 입사각이 스치듯 들어가고
 // (N·L≈0) 그래서 조명을 사실상 못 받는다. 물리적으로는 맞지만 참고 사진의 흰 천장이 안 나온다.
 // 광원을 늘리지 않고 해결하는 축이라 최우선 규칙 1번에 걸리지 않는다.
+// 평상시 emissiveIntensity. 정전 때 0으로 내렸다가 복구할 때 참조하는 원본값이다.
+const MCEIL_EI=.30, MPANEL_EI=3.4;
 const mCeil  =mkMat({map:ceilMap, color:0xffffff,roughness:.90,metalness:.02,
-                     emissive:0xffffff,emissiveIntensity:.30});
+                     emissive:0xffffff,emissiveIntensity:MCEIL_EI});
 // 어두운 구역의 천장. 위 emissive를 그대로 쓰면 천장등이 하나도 없는 복도인데 천장만
 // 하얗게 빛나 어둠이 성립하지 않는다. 재질만 나누면 되고 광원 개수는 그대로다.
 const mCeilDark=mkMat({map:ceilMap, color:0x6e6a5c,roughness:.90,metalness:.02});
 // 형광판 — 광원이 아니라 발광 재질이다. 광원 개수를 늘리지 않고 "밝게 보이는" 축.
-const mPanel  =mkMat({color:0xffffff,emissive:0xfff6dc,emissiveIntensity:3.4});
+// ⚠ 정전은 PointLight(panelLightPool)만 끄는 게 아니라 이 발광 재질도 같이 꺼야 한다.
+// 재질이 씬 전체에서 단 하나만 공유되므로(칸마다 clone하지 않음), emissiveIntensity를
+// 한 번 바꾸면 모든 형광판이 한꺼번에 반응한다 — 개수·드로우콜 변화 없이 공짜다.
+const mPanel  =mkMat({color:0xffffff,emissive:0xfff6dc,emissiveIntensity:MPANEL_EI});
 const mExit   =mkMat({color:0x00ff88,emissive:0x00ff88,emissiveIntensity:1.6,transparent:true,opacity:.88});
 // 몬스터 — 빛을 전혀 받지 않는 순수한 검정. MeshBasicMaterial은 조명 계산을 아예 건너뛰므로
 // 어떤 밝기에서도 실루엣이 보장되고, Phong/Standard보다 오히려 싸다.
@@ -428,6 +450,15 @@ const panelData=[];              // {x,y,z,phase}
 const panelLightPool=[];         // 재사용되는 실제 PointLight (개수 = MAX_PANEL_LIGHTS)
 let MAX_PANEL_LIGHTS=Q.panelLights;   // ★ 품질 프리셋이 정함 (LOW 2 / MED 3 / HIGH 4 / ULTRA 6)
 const PANEL_RANGE=Q.panelRange;  // 광원 유효 반경 (이 밖은 어차피 기여 0). 광원이 적을수록 넓힌다
+
+// ── 정전 ──
+// 레벨 전체의 활성 천장등이 한꺼번에 꺼지는 이벤트. 무작위 타이밍, 최소 대기(쿨다운) 있음.
+// blackoutT: -1이면 평상시. 0 이상이면 정전 시작 후 경과 시간(초) — 이 하나만으로
+// "빛도 손전등도 없는 첫 구간"과 "손전등만 있는 구간"을 동시에 표현한다.
+// 전부 초기 제안값입니다 — 실기기에서 체감하며 조정할 값입니다.
+const BLACKOUT_DURATION=12, FLASH_DELAY=1.0;      // 정전 총 길이 / 손전등이 켜지기까지의 지연
+const BLACKOUT_COOLDOWN_MIN=25, BLACKOUT_COOLDOWN_VAR=20, BLACKOUT_CHANCE_PER_SEC=1/45;
+let blackoutT=-1, _blackoutCooldown=BLACKOUT_COOLDOWN_MIN+Math.random()*BLACKOUT_COOLDOWN_VAR;
 
 // 어두운 구역 — 천장등이 죽은 구획. 칸 단위로 무작위하면 얼룩덜룩해질 뿐이라
 // DARK_BLOCK칸짜리 덩어리로 묶어 "복도 하나가 통째로 어둡다"가 되게 한다.
@@ -1060,6 +1091,12 @@ function startLevel(lv){
   const {start,exit}=pickStartAndExit();
   exitPos={x:exit[0],z:exit[1]};
   P.x=start[0]*CELL;P.z=start[1]*CELL;P.vx=0;P.vz=0;P.spd=0;P.pitch=0;
+  // 정전은 레벨을 넘어 이어지면 안 된다 — 이전 레벨 끝에서 정전 중이었다면(예: 정전 중
+  // 출구에 도달) 새 레벨이 어두운 채로 시작해 버린다. 형광판 재질도 같이 복구해야 한다 —
+  // 정전 도중 탈출하면 blackoutT만 리셋하고 emissiveIntensity 복구 코드는 못 거친다.
+  blackoutT=-1;_blackoutCooldown=BLACKOUT_COOLDOWN_MIN+Math.random()*BLACKOUT_COOLDOWN_VAR;
+  flashlight.intensity=0;
+  mPanel.emissiveIntensity=MPANEL_EI; mCeil.emissiveIntensity=MCEIL_EI;
   // 시작 시 뚫린 쪽을 바라보게 — 전방 벡터가 (-sin,-cos)이므로 yaw=atan2(-dx,-dz)
   P.yaw=0;
   for(const[dx,dz]of[[0,-1],[1,0],[0,1],[-1,0]]){
@@ -1129,7 +1166,9 @@ function showScreen(id){
     }
   }
   document.getElementById('qnote').textContent=
-    '자동 감지 '+detectQuality()+' · 광원 '+(1+Q.panelLights+1)+'개 · 변경 시 재시작';
+    '자동 감지 '+detectQuality()+' · 광원 '+(1+Q.panelLights+1+1)+'개 · 변경 시 재시작';
+  // +1은 손전등. 정전 중이 아니면 intensity=0이라 실제 밝기 기여는 없지만,
+  // 씬에는 항상 존재하는 광원 객체라 계측 패널의 LIGHT 수에는 항상 잡힌다.
   // 타이틀 기록 표시 — 이어할 레벨이 있으면 START가 거기서 시작한다
   const t=document.getElementById('titleRec');
   t.textContent = progress.resumeLevel>1
@@ -1340,12 +1379,36 @@ function animate(){
           panelBuzz(l.position.x,l.position.y,l.position.z);
         }
       }
+
+      // ── 정전 상태 갱신 ──
+      // blackoutT 하나로 세 구간을 표현한다: 평상시(-1) → 암전(0~FLASH_DELAY,
+      // 손전등도 꺼짐) → 손전등만 켜짐(FLASH_DELAY~BLACKOUT_DURATION) → 복구.
+      if(blackoutT<0){
+        _blackoutCooldown-=dt;
+        if(_blackoutCooldown<=0 && Math.random()<dt*BLACKOUT_CHANCE_PER_SEC) blackoutT=0;
+      }else{
+        blackoutT+=dt;
+        if(blackoutT>=BLACKOUT_DURATION){
+          blackoutT=-1;
+          _blackoutCooldown=BLACKOUT_COOLDOWN_MIN+Math.random()*BLACKOUT_COOLDOWN_VAR;
+        }
+      }
+      // 진입/탈출 시점에만 한 번 바꾸지 않고 매 프레임 현재 상태를 그대로 반영한다 —
+      // blackoutT가 나중에 다른 경로로 바뀌어도 조명·재질이 항상 같은 결론을 낸다.
+      // 형광판·천장 발광 재질도 PointLight와 같이 꺼야 한다 — 이 둘은 서로 다른 시스템이라
+      // PointLight만 끄면 발광 텍스처가 여전히 하얗게 빛나 정전처럼 안 보인다.
+      const dark=blackoutT>=0;
+      mPanel.emissiveIntensity=dark?0:MPANEL_EI;
+      mCeil.emissiveIntensity=dark?0:MCEIL_EI;
+      flashlight.intensity=(blackoutT>=FLASH_DELAY)?FLASH_INTENSITY:0;
     }
     // 광원 재배치 (가장 가까운 N개만 실제 광원으로 사용)
     updatePanelLights(dt,t);
     // 활성화된 풀 광원만 깜빡임 적용 (최대 MAX_PANEL_LIGHTS개)
     // 형광등은 횃불과 정반대로 "대체로 일정"해야 한다. 불처럼 흔들면 백룸이 아니라 동굴이 된다.
+    // 정전 중에는 이 반복 전체를 건너뛰고 강제로 끈다 — 개별 깜빡임과는 별개의, 훨씬 큰 이벤트.
     for(const l of panelLightPool){
+      if(blackoutT>=0){l.intensity=0;continue;}
       if(!l.userData.on){continue;}
       const ph=l.userData.td?l.userData.td.phase:0;
       let k=1+Math.sin(t*9.1+ph)*.035;              // 미세한 떨림
