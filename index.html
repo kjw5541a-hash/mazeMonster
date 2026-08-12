@@ -180,7 +180,7 @@ window.addEventListener('unhandledrejection', function(e){
 import * as THREE from 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.module.js';
 import { CELL,WALL_H,MAZE_MIN,MAZE_MAX,MAZE_STEP,mazeSizeFor,
          PLAYER_R,PLAYER_SPD,TURN_SPD,ACCEL,FRIC,
-         MON_COUNT,MON_BASE_SPD,MON_SPD_INC,MON_SIGHT_R,MON_HEAR_R,MON_KILL_R,KEY_PICK_R,
+         FLOOR_MON_COUNT,FLOOR_CRAWLER_COUNT,MON_BASE_SPD,MON_SPD_INC,MON_SIGHT_R,MON_HEAR_R,MON_KILL_R,KEY_PICK_R,
          CHARGE_TIME,CHARGE_BOOST,SNARL_MIN,SNARL_VAR } from './js/constants.js';
 import { QUALITY_PRESETS,QKEY,QNAME,Q,isMobile,detectQuality } from './js/quality.js';
 import { generateMaze,bfsDistances,bfsNext,hasLOS } from './js/maze.js';
@@ -1188,6 +1188,8 @@ function findSpawn(playerDist,minDist){
 
 // ── LEVEL ──
 let level=1,steps=0,gameActive=false;
+// 1층/2층 구조 — level은 "스테이지" 번호, floor는 그 안의 층(1 또는 2)이다.
+let floor=1;
 function startLevel(lv){
   level=lv;steps=0;gameActive=false;lastStep=0;
   monsters.forEach(m=>m.remove());monsters=[];
@@ -1233,13 +1235,14 @@ function startLevel(lv){
     arrowPos={x:a[0],z:a[1]};
   }
   buildWorld();initVisited();updateVisibility();drawMM();
-  const cnt=MON_COUNT(lv),spd=MON_BASE_SPD*(1+MON_SPD_INC*(lv-1));
+  const cnt=FLOOR_MON_COUNT(lv,floor),crawlerCnt=FLOOR_CRAWLER_COUNT(lv,floor);
+  const spd=MON_BASE_SPD*(1+MON_SPD_INC*(lv-1));
   const minSpawn=Math.max(8,Math.floor(MW*0.35));
-  // 레벨 3부터 슬롯 중 최대 1개를 크롤러로 교체한다. 총 마릿수(MON_COUNT)와
+  // 1층=stage마리(전부 standard) / 2층=stage+1마리(크롤러 고정 1 + 나머지 standard).
   // 광원 개수(크롤러도 mMonBody 뿐이라 광원을 안 만든다)는 그대로 — 타입 구성만 바뀐다.
   for(let i=0;i<cnt;i++){
     const[gx,gz]=findSpawn(pDist,minSpawn);
-    const type=(lv>=3&&i===0)?'crawler':'standard';
+    const type=i<crawlerCnt?'crawler':'standard';
     monsters.push(new Monster(gx,gz,spd*MONSTER_TYPES[type].spdMul,type));
   }
   updateMonBar(cnt);

@@ -6,7 +6,9 @@ export const CELL=2.0,WALL_H=2.6;
 export const MAZE_MIN=25,MAZE_MAX=41,MAZE_STEP=4;
 export const mazeSizeFor=lv=>Math.min(MAZE_MAX,MAZE_MIN+(lv-1)*MAZE_STEP);
 export const PLAYER_R=0.32,PLAYER_SPD=4.5,TURN_SPD=2.6,ACCEL=16,FRIC=11;
-export const MON_COUNT=lv=>Math.min(lv,4);
+// 1층/2층 구조 — 마릿수는 층별로 다르다. 1층=스테이지 번호, 2층=스테이지+1(크롤러 1마리 고정 포함).
+export const FLOOR_MON_COUNT=(stage,floor)=>floor===1?stage:stage+1;
+export const FLOOR_CRAWLER_COUNT=(stage,floor)=>floor===1?0:1;
 export const MON_BASE_SPD=2.2,MON_SPD_INC=0.12;
 export const MON_SIGHT_R=8,MON_HEAR_R=4,MON_KILL_R=0.7;
 export const KEY_PICK_R=0.75;   // 열쇠 획득 반경
