@@ -1269,6 +1269,14 @@ function startLevel(lv){
   markLevel(lv);
   gameActive=true;
 }
+// 1층→2층 — 승리 화면 없이 즉시 다음 미로로 전환한다(사다리를 오르는 순간).
+// startLevel()이 floor를 그대로 읽으므로, 여기서 미리 2로 바꿔 두기만 하면
+// 몬스터 공식·열쇠 스킵 분기가 전부 알아서 맞는다.
+function climbLadder(){
+  floor=2;
+  startLevel(level);
+  const fl=document.getElementById('flash');fl.style.opacity='.5';setTimeout(()=>fl.style.opacity='0',180);
+}
 function onEscape(){
   gameActive=false;escaped++;markEscape(level+1);playEscape();
   document.getElementById('winSub').textContent='Level '+level+' cleared · Steps: '+steps;
@@ -1316,10 +1324,12 @@ function showScreen(id){
   document.getElementById('restartBtn').style.display = progress.resumeLevel>1 ? '' : 'none';
 })();
 
-document.getElementById('startBtn').addEventListener('click',()=>{unlockAudio();showScreen(null);startLevel(progress.resumeLevel);});
-document.getElementById('restartBtn').addEventListener('click',()=>{unlockAudio();resetRun();showScreen(null);startLevel(1);});
-document.getElementById('nextBtn').addEventListener('click',()=>{unlockAudio();showScreen(null);startLevel(level+1);});
-document.getElementById('retryBtn').addEventListener('click',()=>{unlockAudio();showScreen(null);startLevel(level);});
+// 사망·재시작·다음 스테이지는 전부 1층부터 시작한다(합의된 저장 규칙과 동일 —
+// 죽은 층이 2층이었어도 재도전은 그 스테이지의 1층부터). floor=2는 climbLadder()만 켠다.
+document.getElementById('startBtn').addEventListener('click',()=>{unlockAudio();showScreen(null);floor=1;startLevel(progress.resumeLevel);});
+document.getElementById('restartBtn').addEventListener('click',()=>{unlockAudio();resetRun();showScreen(null);floor=1;startLevel(1);});
+document.getElementById('nextBtn').addEventListener('click',()=>{unlockAudio();showScreen(null);floor=1;startLevel(level+1);});
+document.getElementById('retryBtn').addEventListener('click',()=>{unlockAudio();showScreen(null);floor=1;startLevel(level);});
 
 // ── 성능 계측 ──
 const perfEl=document.getElementById('perf');
@@ -1484,7 +1494,10 @@ function animate(){
       // exit check
       // 출구 도달 — 열쇠가 없으면 잠긴 문에 막힌다
       if(Math.round(P.x/CELL)===exitPos.x&&Math.round(P.z/CELL)===exitPos.z){
-        if(hasKey){onEscape();return;}
+        if(hasKey){
+          if(floor===1){climbLadder();return;}
+          onEscape();return;
+        }
         else if(t-_lastLocked>1.2){_lastLocked=t;playLocked();showHint('잠겨 있다 — 열쇠를 찾아라');}
       }
       // 열쇠 획득
