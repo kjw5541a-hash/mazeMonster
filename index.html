@@ -390,9 +390,12 @@ const mLock =mkMat({color:0xb08840,emissive:0x6a4a10,emissiveIntensity:1.1,rough
 const gKeyRing =new THREE.TorusGeometry(.085,.026,6,14);
 const gKeyShaft=new THREE.CylinderGeometry(.021,.021,.24,6);
 const gKeyTooth=new THREE.BoxGeometry(.055,.038,.021);
-const gDoorSlab=new THREE.BoxGeometry(1.18,2.0,.14);
 const gLockBody=new THREE.BoxGeometry(.19,.17,.09);
 const gLockShkl=new THREE.TorusGeometry(.068,.021,6,12,Math.PI);
+// 1층의 목표 지점 — 문 대신 2층으로 올라가는 사다리. 레일 2개 + 가로대. mDoor 재질 재사용.
+const LADDER_W=.56, LADDER_H=2.2, LADDER_RUNGS=6;
+const gLadderRail=new THREE.BoxGeometry(.06,LADDER_H,.05);
+const gLadderRung=new THREE.CylinderGeometry(.025,.025,LADDER_W,6);
 // 스프레이 화살표 데칼 — 바닥에 눕혀 붙인다. 칸(CELL) 안에 들어가되 벽에 닿지 않게 약간 작게.
 const gArrowDecal=new THREE.PlaneGeometry(CELL*0.85,CELL*0.85);
 
@@ -652,9 +655,19 @@ function buildWorld(){
   ring.rotation.x=-Math.PI/2;ring.position.set(ex,.015,ez);
   cachedExitRing=ring;
 
-  // 잠긴 문 — 뚫린 쪽을 향하도록 세운다 (돌아가지 않는다. 문이 빙빙 돌면 우습다)
+  // 1층 목표 지점 — 뚫린 쪽을 향하도록 세운다 (돌아가지 않는다. 문이 빙빙 돌면 우습다)
+  // ⚠ 변수명은 doorGroup 그대로 둔다(applyKeyState() 등 참조가 많아 코드 변경을 최소화) —
+  //   지금은 문이 아니라 2층으로 올라가는 사다리다. 가로대 사이에 자물쇠가 걸려 있다가
+  //   열쇠를 얻으면(hasKey) 사라진다 — 문 시절과 같은 토글 구조를 그대로 재사용한다.
   doorGroup=new THREE.Group();
-  const slab=new THREE.Mesh(gDoorSlab,mDoor); slab.position.y=1.0; doorGroup.add(slab);
+  const railL=new THREE.Mesh(gLadderRail,mDoor); railL.position.set(-LADDER_W/2,LADDER_H/2,.03); doorGroup.add(railL);
+  const railR=new THREE.Mesh(gLadderRail,mDoor); railR.position.set( LADDER_W/2,LADDER_H/2,.03); doorGroup.add(railR);
+  for(let i=0;i<LADDER_RUNGS;i++){
+    const rung=new THREE.Mesh(gLadderRung,mDoor);
+    rung.rotation.z=Math.PI/2;
+    rung.position.set(0,.25+i*(LADDER_H-.5)/(LADDER_RUNGS-1),.05);
+    doorGroup.add(rung);
+  }
   const lockBody=new THREE.Mesh(gLockBody,mLock); lockBody.position.set(0,1.02,.10); doorGroup.add(lockBody);
   const shackle=new THREE.Mesh(gLockShkl,mLock); shackle.position.set(0,1.13,.10); doorGroup.add(shackle);
   doorGroup.position.set(ex,0,ez);
