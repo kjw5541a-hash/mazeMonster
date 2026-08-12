@@ -502,7 +502,7 @@ let cachedPortal=null,cachedExitLight=null,cachedExitRing=null;
 // 문은 출구 자체다. 미로 중간에 두면 열쇠가 문 뒤에 갇히지 않는지 매번 검사해야 하는데,
 // 출구를 잠그면 그 문제가 사라지고(문 앞은 언제나 전부 도달 가능) 규칙도 명확해진다.
 let hasKey=false, keyPos={x:1,z:1};
-let keyMesh=null, doorGroup=null;
+let keyMesh=null, doorGroup=null, lockGroup=null;
 // 스프레이 화살표 — 레벨당 무작위 길 칸 1곳. 정확한 길찾기 힌트가 아니라 분위기용 장치다
 // (자세한 이유는 startLevel의 배치 코드 주석 참고). 미니맵이 여전히 유일한 진짜 단서다.
 let arrowPos={x:1,z:1}, arrowGroup=null;
@@ -657,8 +657,9 @@ function buildWorld(){
 
   // 1층 목표 지점 — 뚫린 쪽을 향하도록 세운다 (돌아가지 않는다. 문이 빙빙 돌면 우습다)
   // ⚠ 변수명은 doorGroup 그대로 둔다(applyKeyState() 등 참조가 많아 코드 변경을 최소화) —
-  //   지금은 문이 아니라 2층으로 올라가는 사다리다. 가로대 사이에 자물쇠가 걸려 있다가
-  //   열쇠를 얻으면(hasKey) 사라진다 — 문 시절과 같은 토글 구조를 그대로 재사용한다.
+  //   지금은 문이 아니라 2층으로 올라가는 사다리다. 사다리 자체는 1층에서 항상 보이고,
+  //   가로대 사이의 자물쇠(lockGroup)만 열쇠를 얻으면(hasKey) 따로 사라진다 — 사다리를
+  //   오를 수 있게 됐다는 뜻이지 사다리가 없어지는 게 아니므로 둘을 분리했다.
   doorGroup=new THREE.Group();
   const railL=new THREE.Mesh(gLadderRail,mDoor); railL.position.set(-LADDER_W/2,LADDER_H/2,.03); doorGroup.add(railL);
   const railR=new THREE.Mesh(gLadderRail,mDoor); railR.position.set( LADDER_W/2,LADDER_H/2,.03); doorGroup.add(railR);
@@ -668,8 +669,10 @@ function buildWorld(){
     rung.position.set(0,.25+i*(LADDER_H-.5)/(LADDER_RUNGS-1),.05);
     doorGroup.add(rung);
   }
-  const lockBody=new THREE.Mesh(gLockBody,mLock); lockBody.position.set(0,1.02,.10); doorGroup.add(lockBody);
-  const shackle=new THREE.Mesh(gLockShkl,mLock); shackle.position.set(0,1.13,.10); doorGroup.add(shackle);
+  lockGroup=new THREE.Group();
+  const lockBody=new THREE.Mesh(gLockBody,mLock); lockBody.position.set(0,1.02,.10); lockGroup.add(lockBody);
+  const shackle=new THREE.Mesh(gLockShkl,mLock); shackle.position.set(0,1.13,.10); lockGroup.add(shackle);
+  doorGroup.add(lockGroup);
   doorGroup.position.set(ex,0,ez);
   for(const[dx,dz]of[[0,-1],[1,0],[0,1],[-1,0]]){
     if(!isWall(exitPos.x+dx,exitPos.z+dz)){doorGroup.rotation.y=Math.atan2(dx,dz);break;}
@@ -706,8 +709,11 @@ function buildWorld(){
 
 // 열쇠 소지 여부를 화면에 반영. 광원 "개수"는 건드리지 않고 세기·색만 바꾼다.
 function applyKeyState(){
-  if(doorGroup) doorGroup.visible=!hasKey;
-  if(cachedPortal) cachedPortal.visible=hasKey;
+  // 사다리(doorGroup)는 1층에서 잠금 여부와 무관하게 계속 보인다 — 잠금 표시는
+  // lockGroup 하나만 열쇠 여부로 토글한다. 포탈은 2층 전용(그쪽은 hasKey가 항상 true).
+  if(doorGroup) doorGroup.visible=floor===1;
+  if(lockGroup) lockGroup.visible=!hasKey;
+  if(cachedPortal) cachedPortal.visible=floor===2;
   if(keyMesh) keyMesh.visible=!hasKey;
   // 바닥 링은 계속 보이되 색으로 상태를 알린다 — 잠김 호박색 / 열림 초록
   if(cachedExitRing){
