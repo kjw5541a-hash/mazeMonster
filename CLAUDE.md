@@ -21,9 +21,9 @@ js/textures.js      캔버스 텍스처 생성
 js/audio.js         공간 오디오 전체
 manifest.json       PWA 매니페스트
 js/save.js          진행 저장 (localStorage)
-sw.js               Service Worker (캐시명 dungeon-escape-v24)
-icon-192.svg        아이콘
-icon-512.svg        아이콘
+sw.js               Service Worker (캐시명 dungeon-escape-v28)
+icon-192.png        아이콘 (미로 그림)
+icon-512.png        아이콘 (미로 그림)
 README.md
 .github/workflows/deploy.yml
 ```
