@@ -1191,7 +1191,8 @@ let level=1,steps=0,gameActive=false;
 // 1층/2층 구조 — level은 "스테이지" 번호, floor는 그 안의 층(1 또는 2)이다.
 let floor=1;
 function startLevel(lv){
-  level=lv;steps=0;gameActive=false;lastStep=0;
+  level=lv;gameActive=false;lastStep=0;
+  if(floor===1) steps=0;   // 스테이지 시작(1층)에서만 리셋 — 2층은 이어서 센다
   monsters.forEach(m=>m.remove());monsters=[];
   MW=MH=mazeSizeFor(lv);                       // 레벨이 오를수록 넓어진다 (상한 MAZE_MAX)
   mazeGrid=generateMaze(MW,MH);
@@ -1225,6 +1226,8 @@ function startLevel(lv){
     const k=cand.length?cand[(Math.random()*cand.length)|0]:start;
     keyPos={x:k[0],z:k[1]};
   }
+  // 2층은 열쇠가 필요 없다 — 위 배치는 그대로 두고(keyMesh는 어차피 안 보임) 소지 상태만 켠다.
+  if(floor===2) hasKey=true;
   // 스프레이 화살표 배치 — 시작·출구 칸을 제외한 무작위 길 칸 1곳.
   // 직선(나침반) 방향만 가리키므로 벽을 사이에 두면 틀릴 수 있다 — 의도된 부정확함이다.
   // ⚠ buildWorld()가 이 값을 읽어 데칼을 놓으므로 반드시 그 앞에서 정한다(keyPos와 동일한 이유).
@@ -1246,8 +1249,8 @@ function startLevel(lv){
     monsters.push(new Monster(gx,gz,spd*MONSTER_TYPES[type].spdMul,type));
   }
   updateMonBar(cnt);
-  document.getElementById('hudLv').textContent=lv;
-  document.getElementById('hudSt').textContent=0;
+  document.getElementById('hudLv').textContent=lv+' · '+floor+'F';
+  document.getElementById('hudSt').textContent=steps;
   document.getElementById('hudEsc').textContent=escaped;
   document.getElementById('danger').style.opacity='0';
   markLevel(lv);
