@@ -7,6 +7,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <title>DUNGEON ESCAPE</title>
 <link rel="manifest" href="manifest.json"/>
+<link rel="icon" href="icon-192.png" type="image/png"/>
+<link rel="apple-touch-icon" href="icon-512.png"/>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
 /* 노치·홈 인디케이터 여백. viewport-fit=cover로 화면 끝까지 그리는 대신,
@@ -180,7 +182,7 @@ window.addEventListener('unhandledrejection', function(e){
 import * as THREE from 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.module.js';
 import { CELL,WALL_H,MAZE_MIN,MAZE_MAX,MAZE_STEP,mazeSizeFor,
          PLAYER_R,PLAYER_SPD,TURN_SPD,ACCEL,FRIC,
-         MON_COUNT,MON_BASE_SPD,MON_SPD_INC,MON_SIGHT_R,MON_HEAR_R,MON_KILL_R,KEY_PICK_R,
+         FLOOR_MON_COUNT,FLOOR_CRAWLER_COUNT,MON_BASE_SPD,MON_SPD_INC,MON_SIGHT_R,MON_HEAR_R,MON_KILL_R,KEY_PICK_R,
          CHARGE_TIME,CHARGE_BOOST,SNARL_MIN,SNARL_VAR } from './js/constants.js';
 import { QUALITY_PRESETS,QKEY,QNAME,Q,isMobile,detectQuality } from './js/quality.js';
 import { generateMaze,bfsDistances,bfsNext,hasLOS } from './js/maze.js';
@@ -390,9 +392,12 @@ const mLock =mkMat({color:0xb08840,emissive:0x6a4a10,emissiveIntensity:1.1,rough
 const gKeyRing =new THREE.TorusGeometry(.085,.026,6,14);
 const gKeyShaft=new THREE.CylinderGeometry(.021,.021,.24,6);
 const gKeyTooth=new THREE.BoxGeometry(.055,.038,.021);
-const gDoorSlab=new THREE.BoxGeometry(1.18,2.0,.14);
 const gLockBody=new THREE.BoxGeometry(.19,.17,.09);
 const gLockShkl=new THREE.TorusGeometry(.068,.021,6,12,Math.PI);
+// 1층의 목표 지점 — 문 대신 2층으로 올라가는 사다리. 레일 2개 + 가로대. mDoor 재질 재사용.
+const LADDER_W=.56, LADDER_H=2.2, LADDER_RUNGS=6;
+const gLadderRail=new THREE.BoxGeometry(.06,LADDER_H,.05);
+const gLadderRung=new THREE.CylinderGeometry(.025,.025,LADDER_W,6);
 // 스프레이 화살표 데칼 — 바닥에 눕혀 붙인다. 칸(CELL) 안에 들어가되 벽에 닿지 않게 약간 작게.
 const gArrowDecal=new THREE.PlaneGeometry(CELL*0.85,CELL*0.85);
 
@@ -499,7 +504,7 @@ let cachedPortal=null,cachedExitLight=null,cachedExitRing=null;
 // 문은 출구 자체다. 미로 중간에 두면 열쇠가 문 뒤에 갇히지 않는지 매번 검사해야 하는데,
 // 출구를 잠그면 그 문제가 사라지고(문 앞은 언제나 전부 도달 가능) 규칙도 명확해진다.
 let hasKey=false, keyPos={x:1,z:1};
-let keyMesh=null, doorGroup=null;
+let keyMesh=null, doorGroup=null, lockGroup=null;
 // 스프레이 화살표 — 레벨당 무작위 길 칸 1곳. 정확한 길찾기 힌트가 아니라 분위기용 장치다
 // (자세한 이유는 startLevel의 배치 코드 주석 참고). 미니맵이 여전히 유일한 진짜 단서다.
 let arrowPos={x:1,z:1}, arrowGroup=null;
@@ -652,11 +657,24 @@ function buildWorld(){
   ring.rotation.x=-Math.PI/2;ring.position.set(ex,.015,ez);
   cachedExitRing=ring;
 
-  // 잠긴 문 — 뚫린 쪽을 향하도록 세운다 (돌아가지 않는다. 문이 빙빙 돌면 우습다)
+  // 1층 목표 지점 — 뚫린 쪽을 향하도록 세운다 (돌아가지 않는다. 문이 빙빙 돌면 우습다)
+  // ⚠ 변수명은 doorGroup 그대로 둔다(applyKeyState() 등 참조가 많아 코드 변경을 최소화) —
+  //   지금은 문이 아니라 2층으로 올라가는 사다리다. 사다리 자체는 1층에서 항상 보이고,
+  //   가로대 사이의 자물쇠(lockGroup)만 열쇠를 얻으면(hasKey) 따로 사라진다 — 사다리를
+  //   오를 수 있게 됐다는 뜻이지 사다리가 없어지는 게 아니므로 둘을 분리했다.
   doorGroup=new THREE.Group();
-  const slab=new THREE.Mesh(gDoorSlab,mDoor); slab.position.y=1.0; doorGroup.add(slab);
-  const lockBody=new THREE.Mesh(gLockBody,mLock); lockBody.position.set(0,1.02,.10); doorGroup.add(lockBody);
-  const shackle=new THREE.Mesh(gLockShkl,mLock); shackle.position.set(0,1.13,.10); doorGroup.add(shackle);
+  const railL=new THREE.Mesh(gLadderRail,mDoor); railL.position.set(-LADDER_W/2,LADDER_H/2,.03); doorGroup.add(railL);
+  const railR=new THREE.Mesh(gLadderRail,mDoor); railR.position.set( LADDER_W/2,LADDER_H/2,.03); doorGroup.add(railR);
+  for(let i=0;i<LADDER_RUNGS;i++){
+    const rung=new THREE.Mesh(gLadderRung,mDoor);
+    rung.rotation.z=Math.PI/2;
+    rung.position.set(0,.25+i*(LADDER_H-.5)/(LADDER_RUNGS-1),.05);
+    doorGroup.add(rung);
+  }
+  lockGroup=new THREE.Group();
+  const lockBody=new THREE.Mesh(gLockBody,mLock); lockBody.position.set(0,1.02,.10); lockGroup.add(lockBody);
+  const shackle=new THREE.Mesh(gLockShkl,mLock); shackle.position.set(0,1.13,.10); lockGroup.add(shackle);
+  doorGroup.add(lockGroup);
   doorGroup.position.set(ex,0,ez);
   for(const[dx,dz]of[[0,-1],[1,0],[0,1],[-1,0]]){
     if(!isWall(exitPos.x+dx,exitPos.z+dz)){doorGroup.rotation.y=Math.atan2(dx,dz);break;}
@@ -693,8 +711,11 @@ function buildWorld(){
 
 // 열쇠 소지 여부를 화면에 반영. 광원 "개수"는 건드리지 않고 세기·색만 바꾼다.
 function applyKeyState(){
-  if(doorGroup) doorGroup.visible=!hasKey;
-  if(cachedPortal) cachedPortal.visible=hasKey;
+  // 사다리(doorGroup)는 1층에서 잠금 여부와 무관하게 계속 보인다 — 잠금 표시는
+  // lockGroup 하나만 열쇠 여부로 토글한다. 포탈은 2층 전용(그쪽은 hasKey가 항상 true).
+  if(doorGroup) doorGroup.visible=floor===1;
+  if(lockGroup) lockGroup.visible=!hasKey;
+  if(cachedPortal) cachedPortal.visible=floor===2;
   if(keyMesh) keyMesh.visible=!hasKey;
   // 바닥 링은 계속 보이되 색으로 상태를 알린다 — 잠김 호박색 / 열림 초록
   if(cachedExitRing){
@@ -1188,8 +1209,11 @@ function findSpawn(playerDist,minDist){
 
 // ── LEVEL ──
 let level=1,steps=0,gameActive=false;
+// 1층/2층 구조 — level은 "스테이지" 번호, floor는 그 안의 층(1 또는 2)이다.
+let floor=1;
 function startLevel(lv){
-  level=lv;steps=0;gameActive=false;lastStep=0;
+  level=lv;gameActive=false;lastStep=0;
+  if(floor===1) steps=0;   // 스테이지 시작(1층)에서만 리셋 — 2층은 이어서 센다
   monsters.forEach(m=>m.remove());monsters=[];
   MW=MH=mazeSizeFor(lv);                       // 레벨이 오를수록 넓어진다 (상한 MAZE_MAX)
   mazeGrid=generateMaze(MW,MH);
@@ -1223,6 +1247,8 @@ function startLevel(lv){
     const k=cand.length?cand[(Math.random()*cand.length)|0]:start;
     keyPos={x:k[0],z:k[1]};
   }
+  // 2층은 열쇠가 필요 없다 — 위 배치는 그대로 두고(keyMesh는 어차피 안 보임) 소지 상태만 켠다.
+  if(floor===2) hasKey=true;
   // 스프레이 화살표 배치 — 시작·출구 칸을 제외한 무작위 길 칸 1곳.
   // 직선(나침반) 방향만 가리키므로 벽을 사이에 두면 틀릴 수 있다 — 의도된 부정확함이다.
   // ⚠ buildWorld()가 이 값을 읽어 데칼을 놓으므로 반드시 그 앞에서 정한다(keyPos와 동일한 이유).
@@ -1233,22 +1259,31 @@ function startLevel(lv){
     arrowPos={x:a[0],z:a[1]};
   }
   buildWorld();initVisited();updateVisibility();drawMM();
-  const cnt=MON_COUNT(lv),spd=MON_BASE_SPD*(1+MON_SPD_INC*(lv-1));
+  const cnt=FLOOR_MON_COUNT(lv,floor),crawlerCnt=FLOOR_CRAWLER_COUNT(lv,floor);
+  const spd=MON_BASE_SPD*(1+MON_SPD_INC*(lv-1));
   const minSpawn=Math.max(8,Math.floor(MW*0.35));
-  // 레벨 3부터 슬롯 중 최대 1개를 크롤러로 교체한다. 총 마릿수(MON_COUNT)와
+  // 1층=stage마리(전부 standard) / 2층=stage+1마리(크롤러 고정 1 + 나머지 standard).
   // 광원 개수(크롤러도 mMonBody 뿐이라 광원을 안 만든다)는 그대로 — 타입 구성만 바뀐다.
   for(let i=0;i<cnt;i++){
     const[gx,gz]=findSpawn(pDist,minSpawn);
-    const type=(lv>=3&&i===0)?'crawler':'standard';
+    const type=i<crawlerCnt?'crawler':'standard';
     monsters.push(new Monster(gx,gz,spd*MONSTER_TYPES[type].spdMul,type));
   }
   updateMonBar(cnt);
-  document.getElementById('hudLv').textContent=lv;
-  document.getElementById('hudSt').textContent=0;
+  document.getElementById('hudLv').textContent=lv+' · '+floor+'F';
+  document.getElementById('hudSt').textContent=steps;
   document.getElementById('hudEsc').textContent=escaped;
   document.getElementById('danger').style.opacity='0';
   markLevel(lv);
   gameActive=true;
+}
+// 1층→2층 — 승리 화면 없이 즉시 다음 미로로 전환한다(사다리를 오르는 순간).
+// startLevel()이 floor를 그대로 읽으므로, 여기서 미리 2로 바꿔 두기만 하면
+// 몬스터 공식·열쇠 스킵 분기가 전부 알아서 맞는다.
+function climbLadder(){
+  floor=2;
+  startLevel(level);
+  const fl=document.getElementById('flash');fl.style.opacity='.5';setTimeout(()=>fl.style.opacity='0',180);
 }
 function onEscape(){
   gameActive=false;escaped++;markEscape(level+1);playEscape();
@@ -1297,10 +1332,12 @@ function showScreen(id){
   document.getElementById('restartBtn').style.display = progress.resumeLevel>1 ? '' : 'none';
 })();
 
-document.getElementById('startBtn').addEventListener('click',()=>{unlockAudio();showScreen(null);startLevel(progress.resumeLevel);});
-document.getElementById('restartBtn').addEventListener('click',()=>{unlockAudio();resetRun();showScreen(null);startLevel(1);});
-document.getElementById('nextBtn').addEventListener('click',()=>{unlockAudio();showScreen(null);startLevel(level+1);});
-document.getElementById('retryBtn').addEventListener('click',()=>{unlockAudio();showScreen(null);startLevel(level);});
+// 사망·재시작·다음 스테이지는 전부 1층부터 시작한다(합의된 저장 규칙과 동일 —
+// 죽은 층이 2층이었어도 재도전은 그 스테이지의 1층부터). floor=2는 climbLadder()만 켠다.
+document.getElementById('startBtn').addEventListener('click',()=>{unlockAudio();showScreen(null);floor=1;startLevel(progress.resumeLevel);});
+document.getElementById('restartBtn').addEventListener('click',()=>{unlockAudio();resetRun();showScreen(null);floor=1;startLevel(1);});
+document.getElementById('nextBtn').addEventListener('click',()=>{unlockAudio();showScreen(null);floor=1;startLevel(level+1);});
+document.getElementById('retryBtn').addEventListener('click',()=>{unlockAudio();showScreen(null);floor=1;startLevel(level);});
 
 // ── 성능 계측 ──
 const perfEl=document.getElementById('perf');
@@ -1465,7 +1502,10 @@ function animate(){
       // exit check
       // 출구 도달 — 열쇠가 없으면 잠긴 문에 막힌다
       if(Math.round(P.x/CELL)===exitPos.x&&Math.round(P.z/CELL)===exitPos.z){
-        if(hasKey){onEscape();return;}
+        if(hasKey){
+          if(floor===1){climbLadder();return;}
+          onEscape();return;
+        }
         else if(t-_lastLocked>1.2){_lastLocked=t;playLocked();showHint('잠겨 있다 — 열쇠를 찾아라');}
       }
       // 열쇠 획득

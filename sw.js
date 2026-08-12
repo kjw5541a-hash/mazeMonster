@@ -1,8 +1,10 @@
-const CACHE = 'dungeon-escape-v26';
+const CACHE = 'dungeon-escape-v28';
 const ASSETS = [
   './',
   './index.html',
   './manifest.json',
+  './icon-192.png',
+  './icon-512.png',
   './js/constants.js',
   './js/quality.js',
   './js/maze.js',
