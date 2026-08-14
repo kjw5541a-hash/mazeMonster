@@ -243,6 +243,12 @@ const wallMap =makeWallpaper(Q.texSize,ANISO);
 const floorMap=makeCarpet(Q.texSize,ANISO);
 const ceilMap =makeDropCeiling(Q.texSize,ANISO);
 const arrowMap =makeArrowDecal(Q.texSize,ANISO);
+// 2층 전용 텍스처 — 더 우중충한 황토~주황색 + 핏자국 강화. 1층 텍스처는 그대로 둔다.
+const wallMap2 =makeWallpaper(Q.texSize,ANISO,{baseColor:'#9c6a35',bloodMul:4,grimeMul:1.3,
+  bloodColor:'rgba(78,16,12,0.48)',dripColor:'rgba(78,16,12,0.40)'});
+const floorMap2=makeCarpet(Q.texSize,ANISO,{baseR:90,baseG:58,baseB:28,blood:4});
+const ceilMap2 =makeDropCeiling(Q.texSize,ANISO,{baseR:188,baseG:164,baseB:122,
+  stainChance:.35,stainColor:'rgba(140,90,40,0.48)'});
 
 // 재질 팩토리 — LOW/MEDIUM은 MeshPhongMaterial로 대체한다.
 // MeshLambertMaterial을 쓰지 않는 이유: r128의 Lambert는 정점 단위(Gouraud) 조명이라
@@ -273,6 +279,12 @@ const mCeil  =mkMat({map:ceilMap, color:0xffffff,roughness:.90,metalness:.02,
 // 어두운 구역의 천장. 위 emissive를 그대로 쓰면 천장등이 하나도 없는 복도인데 천장만
 // 하얗게 빛나 어둠이 성립하지 않는다. 재질만 나누면 되고 광원 개수는 그대로다.
 const mCeilDark=mkMat({map:ceilMap, color:0x6e6a5c,roughness:.90,metalness:.02});
+// 2층 재질 — 텍스처만 다르고 나머지 파라미터(광원 관련 값 포함)는 1층과 동일하게 맞춘다.
+const mWall2  =mkMat({map:wallMap2, color:0xffffff,roughness:.92,metalness:.02});
+const mFloor2 =mkMat({map:floorMap2,color:0xffffff,roughness:.98,metalness:.0});
+const mCeil2  =mkMat({map:ceilMap2, color:0xffffff,roughness:.90,metalness:.02,
+                     emissive:0xffffff,emissiveIntensity:MCEIL_EI});
+const mCeilDark2=mkMat({map:ceilMap2, color:0x6b5540,roughness:.90,metalness:.02});
 // 형광판 — 광원이 아니라 발광 재질이다. 광원 개수를 늘리지 않고 "밝게 보이는" 축.
 // ⚠ 정전은 PointLight(panelLightPool)만 끄는 게 아니라 이 발광 재질도 같이 꺼야 한다.
 // 재질이 씬 전체에서 단 하나만 공유되므로(칸마다 clone하지 않음), emissiveIntensity를
@@ -641,7 +653,11 @@ function buildWorld(){
       if(!dark && (col+row)%2===0) placePanel(wx,wz,glow[ci]);
     }
   }
-  for(const[lists,mat] of [[walls,mWall],[floors,mFloor],[ceils,mCeil],[ceilsDark,mCeilDark],[glow,mPanel]])
+  // 2층은 텍스처만 다른 재질 세트를 쓴다(더 우중충한 황토~주황색 + 핏자국 강화).
+  // 광원·조명 파라미터는 손대지 않았으므로 밝기 기준·성능 특성은 1층과 동일하다.
+  const wallMat=floor===2?mWall2:mWall, floorMat=floor===2?mFloor2:mFloor;
+  const ceilMat=floor===2?mCeil2:mCeil, ceilDarkMat=floor===2?mCeilDark2:mCeilDark;
+  for(const[lists,mat] of [[walls,wallMat],[floors,floorMat],[ceils,ceilMat],[ceilsDark,ceilDarkMat],[glow,mPanel]])
     for(const list of lists)
       if(list.length) addO(new THREE.Mesh(mergeParts(list),mat));
   // ── 출구 ── 열린 포탈과 잠긴 문을 함께 만들고 열쇠 소지 여부로 전환한다
@@ -1225,7 +1241,7 @@ function startLevel(lv){
   // 정전 도중 탈출하면 blackoutT만 리셋하고 emissiveIntensity 복구 코드는 못 거친다.
   blackoutT=-1;_blackoutCooldown=BLACKOUT_COOLDOWN_MIN+Math.random()*BLACKOUT_COOLDOWN_VAR;
   flashlight.intensity=0;
-  mPanel.emissiveIntensity=MPANEL_EI; mCeil.emissiveIntensity=MCEIL_EI;
+  mPanel.emissiveIntensity=MPANEL_EI; mCeil.emissiveIntensity=MCEIL_EI; mCeil2.emissiveIntensity=MCEIL_EI;
   // 시작 시 뚫린 쪽을 바라보게 — 전방 벡터가 (-sin,-cos)이므로 yaw=atan2(-dx,-dz)
   P.yaw=0;
   for(const[dx,dz]of[[0,-1],[1,0],[0,1],[-1,0]]){
@@ -1560,6 +1576,7 @@ function animate(){
       const dark=blackoutT>=0;
       mPanel.emissiveIntensity=dark?0:MPANEL_EI;
       mCeil.emissiveIntensity=dark?0:MCEIL_EI;
+      mCeil2.emissiveIntensity=dark?0:MCEIL_EI;   // 2층 천장 재질도 같이 꺼야 한다
       flashlight.intensity=(blackoutT>=FLASH_DELAY)?FLASH_INTENSITY:0;
     }
     // 광원 재배치 (가장 가까운 N개만 실제 광원으로 사용)
