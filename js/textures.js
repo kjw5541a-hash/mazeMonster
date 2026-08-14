@@ -26,12 +26,14 @@ function blob(ctx,x,y,r,color,w,h){
 
 // 겨자색 벽지 — 백룸의 얼굴. 무늬는 "무늬"로 읽히면 안 되고 질감으로만 남아야 한다.
 // 대비를 올리면 복도마다 같은 무늬가 반복되는 게 눈에 띄어 싸구려로 보인다.
-export function makeWallpaper(size,aniso){
+// opts — 2층처럼 다른 분위기의 방을 만들 때만 쓴다. 기본값은 1층과 완전히 동일하다.
+export function makeWallpaper(size,aniso,opts={}){
+  const {baseColor='#bdae66',bloodMul=1,bloodColor='rgba(70,18,14,0.40)',dripColor='rgba(70,18,14,0.34)',grimeMul=1}=opts;
   const w=size,h=size,s=size/256;
   const c=document.createElement('canvas');c.width=w;c.height=h;
   const ctx=c.getContext('2d');
 
-  ctx.fillStyle='#bdae66';ctx.fillRect(0,0,w,h);
+  ctx.fillStyle=baseColor;ctx.fillRect(0,0,w,h);
 
   // 은은한 세로 스트라이프
   for(let x=0;x<w;x+=16*s){
@@ -56,28 +58,29 @@ export function makeWallpaper(size,aniso){
 
   // 아래쪽 때. 캔버스 아래가 벽 아래다 (CanvasTexture는 flipY=true라 위아래가 그대로 대응)
   const gr=ctx.createLinearGradient(0,h*0.62,0,h);
-  gr.addColorStop(0,'transparent');gr.addColorStop(1,'rgba(58,48,22,0.52)');
+  gr.addColorStop(0,'transparent');gr.addColorStop(1,`rgba(58,48,22,${0.52*grimeMul})`);
   ctx.fillStyle=gr;ctx.fillRect(0,h*0.62,w,h*0.38);
 
   // 물 얼룩 — 아래쪽에 몰리게
   const stains=Math.max(4,Math.round(9*s*s));
   for(let i=0;i<stains;i++)
     blob(ctx,Math.random()*w,h*0.35+Math.random()*h*0.65,(10+Math.random()*26)*s,
-         'rgba(86,66,26,0.28)',w,h);
+         `rgba(86,66,26,${0.28*grimeMul})`,w,h);
 
   // 핏자국 — 마른 갈색에 가깝게 낮은 채도로. 벽지 전체에 대비를 올리면
   // 복도마다 똑같은 자리에 피가 있는 게 눈에 띄어 무늬처럼 반복돼 보인다.
-  // 그래서 개수를 물 얼룩보다도 적게 두고, 아래로 흘러내린 자국만 살짝 진하게 남긴다.
-  const blood=Math.max(1,Math.round(2*s*s));
+  // 그래서 개수를 물 얼룩보다도 적게 두고(bloodMul=1일 때), 아래로 흘러내린 자국만
+  // 살짝 진하게 남긴다. 2층은 bloodMul을 올려서 더 지저분하게 만든다.
+  const blood=Math.max(1,Math.round(2*s*s*bloodMul));
   for(let i=0;i<blood;i++){
     const bx=Math.random()*w, by=h*0.2+Math.random()*h*0.5;
-    blob(ctx,bx,by,(7+Math.random()*13)*s,'rgba(70,18,14,0.40)',w,h);
+    blob(ctx,bx,by,(7+Math.random()*13)*s,bloodColor,w,h);
     const drips=1+Math.floor(Math.random()*3);
     for(let d=0;d<drips;d++){
       const dx=bx+(Math.random()*18-9)*s;
       const len=(18+Math.random()*46)*s;
       const gr2=ctx.createLinearGradient(dx,by,dx,by+len);
-      gr2.addColorStop(0,'rgba(70,18,14,0.34)');
+      gr2.addColorStop(0,dripColor);
       gr2.addColorStop(1,'rgba(70,18,14,0)');
       ctx.fillStyle=gr2;
       ctx.fillRect(dx-1*s,by,Math.max(1,2*s),len);
@@ -94,12 +97,14 @@ export function makeWallpaper(size,aniso){
 }
 
 // 축축한 겨자색 카펫 — 격자나 줄눈이 없어야 한다. 선이 보이면 사무실이 아니라 타일 바닥이 된다.
-export function makeCarpet(size,aniso){
+// opts — 2층처럼 다른 분위기의 방을 만들 때만 쓴다. 기본값은 1층과 완전히 동일하다.
+export function makeCarpet(size,aniso,opts={}){
+  const {baseR=111,baseG=99,baseB=52,blood=0}=opts;
   const w=size,h=size,s=size/256;
   const c=document.createElement('canvas');c.width=w;c.height=h;
   const ctx=c.getContext('2d');
 
-  ctx.fillStyle='#6f6334';ctx.fillRect(0,0,w,h);
+  ctx.fillStyle=`rgb(${baseR},${baseG},${baseB})`;ctx.fillRect(0,0,w,h);
 
   // 습기 얼룩 — 섬유보다 먼저 깔아야 섬유가 위에 남는다
   const damp=Math.max(6,Math.round(22*s*s));
@@ -112,31 +117,40 @@ export function makeCarpet(size,aniso){
   for(let i=0;i<fib;i++){
     const x=Math.random()*w,y=Math.random()*h;
     const v=Math.floor(Math.random()*46-20);
-    ctx.fillStyle=`rgba(${111+v},${99+v},${52+v},0.55)`;
+    ctx.fillStyle=`rgba(${baseR+v},${baseG+v},${baseB+v},0.55)`;
     ctx.fillRect(x,y,Math.max(1,(1+Math.random()*2)*s),Math.max(1,(2+Math.random()*3)*s));
   }
+
+  // 핏자국 — 2층 전용(blood>0). 섬유 위에 얹어야 바닥에 스며든 것처럼 보인다.
+  const bloodN=Math.round(blood*s*s);
+  for(let i=0;i<bloodN;i++)
+    blob(ctx,Math.random()*w,Math.random()*h,(9+Math.random()*22)*s,
+         'rgba(64,14,10,0.45)',w,h);
+
   return finishTex(new THREE.CanvasTexture(c),3,aniso);
 }
 
 // 흰 텍스 천장 — 백룸에서는 천장이 조연이 아니라 주연이다.
 // 3×3 격자(칸당 CELL=2m이므로 타일 한 장이 약 0.67m — 실제 아코스틱 타일 규격과 비슷)
-export function makeDropCeiling(size,aniso){
+// opts — 2층처럼 다른 분위기의 방을 만들 때만 쓴다. 기본값은 1층과 완전히 동일하다.
+export function makeDropCeiling(size,aniso,opts={}){
+  const {baseR=203,baseG=199,baseB=181,stainChance=.22,stainColor='rgba(150,128,72,0.42)'}=opts;
   const w=size,h=size,s=size/256;
   const c=document.createElement('canvas');c.width=w;c.height=h;
   const ctx=c.getContext('2d');
 
-  ctx.fillStyle='#cfcbb8';ctx.fillRect(0,0,w,h);
+  ctx.fillStyle=`rgb(${baseR},${baseG},${baseB})`;ctx.fillRect(0,0,w,h);
 
   const n=3,tile=w/n;
   for(let ty=0;ty<n;ty++)for(let tx=0;tx<n;tx++){
     // 타일마다 살짝 다른 색 — 다 똑같으면 인쇄물처럼 보인다
     const v=Math.floor(Math.random()*14-7);
-    ctx.fillStyle=`rgb(${203+v},${199+v},${181+v})`;
+    ctx.fillStyle=`rgb(${baseR+v},${baseG+v},${baseB+v})`;
     ctx.fillRect(tx*tile,ty*tile,tile,tile);
     // 물 샌 자국이 있는 타일
-    if(Math.random()<.22)
+    if(Math.random()<stainChance)
       blob(ctx,(tx+.2+Math.random()*.6)*tile,(ty+.2+Math.random()*.6)*tile,
-           tile*(.18+Math.random()*.22),'rgba(150,128,72,0.42)',w,h);
+           tile*(.18+Math.random()*.22),stainColor,w,h);
   }
 
   // 아코스틱 타일 미세 구멍
