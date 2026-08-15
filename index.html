@@ -66,10 +66,10 @@ body{background:#080a10;overflow:hidden;font-family:'Courier New',monospace;touc
 #flash{position:fixed;inset:0;background:#200;opacity:0;pointer-events:none;z-index:90;transition:opacity .15s;}
 #monsterBar{position:fixed;top:calc(68px + var(--sat));left:50%;transform:translateX(-50%);display:flex;gap:8px;z-index:10;pointer-events:none;}
 .mIcon{font-size:18px;filter:drop-shadow(0 0 4px red);}
-/* 열쇠 소지 표시 — 없을 땐 어둡게 두어 "뭔가 있다"는 것만 알린다 */
+/* 출입증 소지 표시 — 없을 땐 어둡게 두어 "뭔가 있다"는 것만 알린다 */
 #keyHud{position:fixed;top:calc(96px + var(--sat));left:50%;transform:translateX(-50%);z-index:10;
         pointer-events:none;font-size:19px;opacity:.22;filter:grayscale(1);transition:opacity .25s,filter .25s;}
-#keyHud.on{opacity:1;filter:none;text-shadow:0 0 10px #fc4;}
+#keyHud.on{opacity:1;filter:none;text-shadow:0 0 10px #4f8;}
 #hint{position:fixed;bottom:26%;left:50%;transform:translateX(-50%);z-index:12;pointer-events:none;
       font-size:12px;letter-spacing:2px;color:#ffcc66;text-shadow:0 0 8px rgba(0,0,0,.9);
       background:rgba(0,0,0,.55);padding:6px 14px;border:1px solid rgba(255,180,60,.3);
@@ -117,7 +117,7 @@ body{background:#080a10;overflow:hidden;font-family:'Courier New',monospace;touc
   <div class="hud-block"><div class="hud-label">Steps</div><div class="hud-value" id="hudSt">0</div></div>
 </div>
 <div id="monsterBar"></div>
-<div id="keyHud">🔑</div>
+<div id="keyHud">🪪</div>
 <div id="hint"></div>
 <div id="perf">
   <div><span class="lb">FPS</span><span class="pv" id="pFps">--</span> <span id="pMs" style="opacity:.55"></span></div>
@@ -186,7 +186,7 @@ import { CELL,WALL_H,MAZE_MIN,MAZE_MAX,MAZE_STEP,mazeSizeFor,
          CHARGE_TIME,CHARGE_BOOST,SNARL_MIN,SNARL_VAR } from './js/constants.js';
 import { QUALITY_PRESETS,QKEY,QNAME,Q,isMobile,detectQuality } from './js/quality.js';
 import { generateMaze,bfsDistances,bfsNext,hasLOS } from './js/maze.js';
-import { makeWallpaper,makeCarpet,makeDropCeiling,makeArrowDecal } from './js/textures.js';
+import { makeWallpaper,makeCarpet,makeDropCeiling,makeArrowDecal,makeExitSign } from './js/textures.js';
 import { unlockAudio,updateAudioListener,footstep,monsterStep,playGrowl,panelBuzz,
          playShriek,heartbeat,playDeath,playEscape,playKeyPickup,playLocked } from './js/audio.js';
 import { progress,loadProgress,markLevel,markEscape,resetRun } from './js/save.js';
@@ -243,6 +243,7 @@ const wallMap =makeWallpaper(Q.texSize,ANISO);
 const floorMap=makeCarpet(Q.texSize,ANISO);
 const ceilMap =makeDropCeiling(Q.texSize,ANISO);
 const arrowMap =makeArrowDecal(Q.texSize,ANISO);
+const exitSignMap=makeExitSign(Q.texSize,ANISO);
 // 2층 전용 텍스처 — 더 우중충한 황토~주황색 + 핏자국 강화. 1층 텍스처는 그대로 둔다.
 const wallMap2 =makeWallpaper(Q.texSize,ANISO,{baseColor:'#9c6a35',bloodMul:4,grimeMul:1.3,
   bloodColor:'rgba(78,16,12,0.48)',dripColor:'rgba(78,16,12,0.40)'});
@@ -258,7 +259,7 @@ const ceilMap2 =makeDropCeiling(Q.texSize,ANISO,{baseR:188,baseG:164,baseB:122,
 function mkMat(o){
   if(Q.matType!=='phong') return new THREE.MeshStandardMaterial(o);
   const p={};
-  for(const k of ['map','color','emissive','emissiveIntensity','transparent','opacity','side'])
+  for(const k of ['map','color','emissive','emissiveIntensity','emissiveMap','transparent','opacity','side'])
     if(o[k]!==undefined)p[k]=o[k];
   p.shininess=o.roughness!==undefined?Math.max(2,(1-o.roughness)*60):30;
   p.specular=new THREE.Color((o.metalness||0)>0.4?0x555555:0x111111);
@@ -290,7 +291,11 @@ const mCeilDark2=mkMat({map:ceilMap2, color:0x6b5540,roughness:.90,metalness:.02
 // 재질이 씬 전체에서 단 하나만 공유되므로(칸마다 clone하지 않음), emissiveIntensity를
 // 한 번 바꾸면 모든 형광판이 한꺼번에 반응한다 — 개수·드로우콜 변화 없이 공짜다.
 const mPanel  =mkMat({color:0xffffff,emissive:0xfff6dc,emissiveIntensity:MPANEL_EI});
-const mExit   =mkMat({color:0x00ff88,emissive:0x00ff88,emissiveIntensity:1.6,transparent:true,opacity:.88});
+// 최종 출구 — 회색 방화문 + 크래시바 + 초록 EXIT 표지판(백룸 리스킨, 이전엔 떠서 도는
+// 초록 포탈 상자였다). mExitSign만 emissiveMap이라 조명과 무관하게 항상 켜져 있다.
+const mExitDoor=mkMat({color:0x53565b,roughness:.75,metalness:.30,emissive:0x0a0b0c,emissiveIntensity:.25});
+const mExitBar =mkMat({color:0xb43326,roughness:.5,metalness:.55});
+const mExitSign=mkMat({color:0x000000,emissive:0xffffff,emissiveIntensity:1.6,emissiveMap:exitSignMap,side:THREE.DoubleSide});
 // 스프레이 화살표 데칼 — 바닥에 눕혀 붙이는 알파 텍스처. 광원을 늘리지 않는 순수 장식이라
 // mCeil처럼 emissive를 줄 필요는 없고, 바닥 조명을 그대로 받아도 충분히 보인다.
 const mArrow  =mkMat({map:arrowMap,color:0xffffff,transparent:true,opacity:.9,side:THREE.DoubleSide});
@@ -398,20 +403,31 @@ function jointLimb(geo,len,parent,x,y,z){
 }
 
 // ── 열쇠·문 지오메트리 ── (레벨마다 재사용)
-const mKey  =mkMat({color:0xffcc44,emissive:0xffaa22,emissiveIntensity:2.2,roughness:.35,metalness:.8});
+// 열쇠 = 사무실 출입증 카드, 자물쇠 = 카드리더기(백룸 리스킨 — 예전엔 금색 열쇠와
+// 황동 맹꽁이자물쇠였다). hasKey/keyPos/lockGroup 등 변수명은 참조가 많아 그대로 뒀다.
+const mCardBody =mkMat({color:0xd8d4c4,roughness:.55,metalness:.08});
+const mCardPhoto=mkMat({color:0x2f6fb0,emissive:0x1a4a80,emissiveIntensity:1.8,roughness:.4,metalness:.25});
+const mCardClip =mkMat({color:0xb0b0b0,roughness:.35,metalness:.85});
+const gCardBody =new THREE.BoxGeometry(.16,.24,.012);
+const gCardPhoto=new THREE.BoxGeometry(.09,.09,.014);
+const gCardHole =new THREE.TorusGeometry(.018,.006,6,10);
 const mDoor =mkMat({color:0x4a4038,roughness:.85,metalness:.35,emissive:0x120c06,emissiveIntensity:.4});
-const mLock =mkMat({color:0xb08840,emissive:0x6a4a10,emissiveIntensity:1.1,roughness:.4,metalness:.9});
-const gKeyRing =new THREE.TorusGeometry(.085,.026,6,14);
-const gKeyShaft=new THREE.CylinderGeometry(.021,.021,.24,6);
-const gKeyTooth=new THREE.BoxGeometry(.055,.038,.021);
-const gLockBody=new THREE.BoxGeometry(.19,.17,.09);
-const gLockShkl=new THREE.TorusGeometry(.068,.021,6,12,Math.PI);
+// 카드리더기 — LED 색으로 잠금 여부를 알린다(applyKeyState). 자물쇠처럼 사라지지
+// 않고 사다리에 항상 붙어 있다 — 실물 리더기가 접근 허가 후 사라지지는 않으므로.
+const mReaderBody=mkMat({color:0x2b2b2e,roughness:.5,metalness:.6});
+const mReaderLed =mkMat({color:0xff3b30,emissive:0xff3b30,emissiveIntensity:2.2,roughness:.4,metalness:.2});
+const gReaderBody=new THREE.BoxGeometry(.14,.20,.05);
+const gReaderLed =new THREE.BoxGeometry(.05,.025,.01);
 // 1층의 목표 지점 — 문 대신 2층으로 올라가는 사다리. 레일 2개 + 가로대. mDoor 재질 재사용.
 const LADDER_W=.56, LADDER_H=2.2, LADDER_RUNGS=6;
 const gLadderRail=new THREE.BoxGeometry(.06,LADDER_H,.05);
 const gLadderRung=new THREE.CylinderGeometry(.025,.025,LADDER_W,6);
 // 스프레이 화살표 데칼 — 바닥에 눕혀 붙인다. 칸(CELL) 안에 들어가되 벽에 닿지 않게 약간 작게.
 const gArrowDecal=new THREE.PlaneGeometry(CELL*0.85,CELL*0.85);
+// 최종 출구 문의 크래시바(가로 손잡이)와 EXIT 표지판. 문짝 자체는 기존 ep의
+// BoxGeometry(1.1,1.9,.12)를 그대로 쓴다 — 새 지오메트리가 아니라 재질만 바뀐다.
+const gExitBar =new THREE.BoxGeometry(.86,.08,.05);
+const gExitSign=new THREE.PlaneGeometry(.62,.24);
 
 // ── PLAYER ──
 const P={x:CELL,z:CELL,yaw:0,targetYaw:0,pitch:0,vx:0,vz:0,spd:0};
@@ -660,10 +676,16 @@ function buildWorld(){
   for(const[lists,mat] of [[walls,wallMat],[floors,floorMat],[ceils,ceilMat],[ceilsDark,ceilDarkMat],[glow,mPanel]])
     for(const list of lists)
       if(list.length) addO(new THREE.Mesh(mergeParts(list),mat));
-  // ── 출구 ── 열린 포탈과 잠긴 문을 함께 만들고 열쇠 소지 여부로 전환한다
+  // ── 출구 ── 회색 방화문 + 초록 EXIT 표지판(2층 전용). 열쇠 소지 여부로 전환하는
+  // 자물쇠 걸린 문은 이제 없다 — 그건 1층의 사다리+카드리더기가 담당한다(아래).
   const ex=exitPos.x*CELL, ez=exitPos.z*CELL;
-  const ep=addO(new THREE.Mesh(new THREE.BoxGeometry(1.1,1.9,.12),mExit));
-  ep.position.set(ex,WALL_H/2-.3,ez);ep.userData.isPortal=true;
+  const ep=addO(new THREE.Mesh(new THREE.BoxGeometry(1.1,1.9,.12),mExitDoor));
+  ep.position.set(ex,WALL_H/2-.3,ez);
+  for(const[dx,dz]of[[0,-1],[1,0],[0,1],[-1,0]]){
+    if(!isWall(exitPos.x+dx,exitPos.z+dz)){ep.rotation.y=Math.atan2(dx,dz);break;}
+  }
+  const exitBar=new THREE.Mesh(gExitBar,mExitBar); exitBar.position.set(0,-.05,.09); ep.add(exitBar);
+  const exitSign=new THREE.Mesh(gExitSign,mExitSign); exitSign.position.set(0,1.05,.07); ep.add(exitSign);
   cachedPortal=ep;
   const el=new THREE.PointLight(0x00ff88,5,CELL*1.5,2);
   el.position.set(ex,1.2,ez);el.userData.isExitLight=true;addO(el);
@@ -676,8 +698,8 @@ function buildWorld(){
   // 1층 목표 지점 — 뚫린 쪽을 향하도록 세운다 (돌아가지 않는다. 문이 빙빙 돌면 우습다)
   // ⚠ 변수명은 doorGroup 그대로 둔다(applyKeyState() 등 참조가 많아 코드 변경을 최소화) —
   //   지금은 문이 아니라 2층으로 올라가는 사다리다. 사다리 자체는 1층에서 항상 보이고,
-  //   가로대 사이의 자물쇠(lockGroup)만 열쇠를 얻으면(hasKey) 따로 사라진다 — 사다리를
-  //   오를 수 있게 됐다는 뜻이지 사다리가 없어지는 게 아니므로 둘을 분리했다.
+  //   가로대 사이의 카드리더기(lockGroup)는 계속 붙어 있되 LED 색으로만 잠금 여부를
+  //   알린다(백룸 리스킨 — 예전 자물쇠는 열쇠를 얻으면 통째로 사라졌다).
   doorGroup=new THREE.Group();
   const railL=new THREE.Mesh(gLadderRail,mDoor); railL.position.set(-LADDER_W/2,LADDER_H/2,.03); doorGroup.add(railL);
   const railR=new THREE.Mesh(gLadderRail,mDoor); railR.position.set( LADDER_W/2,LADDER_H/2,.03); doorGroup.add(railR);
@@ -688,8 +710,9 @@ function buildWorld(){
     doorGroup.add(rung);
   }
   lockGroup=new THREE.Group();
-  const lockBody=new THREE.Mesh(gLockBody,mLock); lockBody.position.set(0,1.02,.10); lockGroup.add(lockBody);
-  const shackle=new THREE.Mesh(gLockShkl,mLock); shackle.position.set(0,1.13,.10); lockGroup.add(shackle);
+  const readerBody=new THREE.Mesh(gReaderBody,mReaderBody); readerBody.position.set(0,1.05,.075); lockGroup.add(readerBody);
+  const readerLed =new THREE.Mesh(gReaderLed, mReaderLed);  readerLed.position.set(0,1.11,.10); lockGroup.add(readerLed);
+  lockGroup.userData.led=readerLed;
   doorGroup.add(lockGroup);
   doorGroup.position.set(ex,0,ez);
   for(const[dx,dz]of[[0,-1],[1,0],[0,1],[-1,0]]){
@@ -697,12 +720,11 @@ function buildWorld(){
   }
   addO(doorGroup);
 
-  // ── 열쇠 ── 시작 지점에서 충분히 떨어진 길 칸에 둔다
+  // ── 열쇠(카드) ── 시작 지점에서 충분히 떨어진 길 칸에 둔다
   keyMesh=new THREE.Group();
-  const kr=new THREE.Mesh(gKeyRing,mKey);   kr.position.y=.10; keyMesh.add(kr);
-  const ks=new THREE.Mesh(gKeyShaft,mKey);  ks.position.y=-.07; keyMesh.add(ks);
-  const kt1=new THREE.Mesh(gKeyTooth,mKey); kt1.position.set(.036,-.145,0); keyMesh.add(kt1);
-  const kt2=new THREE.Mesh(gKeyTooth,mKey); kt2.position.set(.036,-.075,0); keyMesh.add(kt2);
+  const cardBody =new THREE.Mesh(gCardBody, mCardBody);  keyMesh.add(cardBody);
+  const cardPhoto=new THREE.Mesh(gCardPhoto,mCardPhoto); cardPhoto.position.set(0,.055,.013); keyMesh.add(cardPhoto);
+  const cardHole =new THREE.Mesh(gCardHole, mCardClip);  cardHole.position.set(0,.105,0); keyMesh.add(cardHole);
   keyMesh.position.set(keyPos.x*CELL,1.0,keyPos.z*CELL);
   addO(keyMesh);
 
@@ -725,12 +747,21 @@ function buildWorld(){
   initPanelLightPool();   // 횃불 광원 풀 생성 (개수 고정)
 }
 
-// 열쇠 소지 여부를 화면에 반영. 광원 "개수"는 건드리지 않고 세기·색만 바꾼다.
+// 열쇠(카드) 소지 여부를 화면에 반영. 광원 "개수"는 건드리지 않고 세기·색만 바꾼다.
 function applyKeyState(){
-  // 사다리(doorGroup)는 1층에서 잠금 여부와 무관하게 계속 보인다 — 잠금 표시는
-  // lockGroup 하나만 열쇠 여부로 토글한다. 포탈은 2층 전용(그쪽은 hasKey가 항상 true).
+  // 사다리(doorGroup)는 1층에서 잠금 여부와 무관하게 계속 보인다. 카드리더기(lockGroup)도
+  // 함께 계속 보이되, LED만 빨강↔초록으로 바뀌어 잠금 여부를 알린다 — 예전 자물쇠처럼
+  // 통째로 사라지지 않는다(실물 리더기는 접근 허가 후에도 사라지지 않으므로).
+  // 문(cachedPortal)은 2층 전용(그쪽은 hasKey가 항상 true).
   if(doorGroup) doorGroup.visible=floor===1;
-  if(lockGroup) lockGroup.visible=!hasKey;
+  if(lockGroup){
+    const led=lockGroup.userData.led;
+    if(led){
+      const c=hasKey?0x00ff66:0xff3b30;
+      led.material.color.setHex(c);
+      led.material.emissive.setHex(c);
+    }
+  }
   if(cachedPortal) cachedPortal.visible=floor===2;
   if(keyMesh) keyMesh.visible=!hasKey;
   // 바닥 링은 계속 보이되 색으로 상태를 알린다 — 잠김 호박색 / 열림 초록
@@ -1522,13 +1553,13 @@ function animate(){
           if(floor===1){climbLadder();return;}
           onEscape();return;
         }
-        else if(t-_lastLocked>1.2){_lastLocked=t;playLocked();showHint('잠겨 있다 — 열쇠를 찾아라');}
+        else if(t-_lastLocked>1.2){_lastLocked=t;playLocked();showHint('출입증이 필요하다');}
       }
       // 열쇠 획득
       if(!hasKey){
         const kdx=keyPos.x*CELL-P.x, kdz=keyPos.z*CELL-P.z;
         if(kdx*kdx+kdz*kdz < KEY_PICK_R*KEY_PICK_R){
-          hasKey=true;applyKeyState();playKeyPickup();showHint('열쇠를 손에 넣었다');
+          hasKey=true;applyKeyState();playKeyPickup();showHint('출입증을 손에 넣었다');
         }
       }
       updateVisibility();
@@ -1598,8 +1629,8 @@ function animate(){
       keyMesh.rotation.y=t*1.6;
       keyMesh.position.y=1.0+Math.sin(t*2.2)*.075;
     }
-    // 캐싱된 portal/exitLight 직접 참조
-    if(cachedPortal){cachedPortal.rotation.y=t*.8;cachedPortal.material.emissiveIntensity=1.2+Math.sin(t*2.8)*.6;}
+    // 캐싱된 exitLight 직접 참조. 문(cachedPortal)은 이제 회전·펄스가 없는 정적인
+    // 방화문이라(예전엔 도는 포탈이었다) 매 프레임 손댈 게 없다.
     if(cachedExitLight){
       const dxE=exitPos.x*CELL-P.x, dzE=exitPos.z*CELL-P.z;
       cachedExitLight.intensity=((dxE*dxE+dzE*dzE)<6*6) ? 4+Math.sin(t*3)*1.5 : 0;
