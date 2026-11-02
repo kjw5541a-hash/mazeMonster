@@ -184,6 +184,25 @@ function dab(ctx,x,y,r,color){
   g.addColorStop(0,color);g.addColorStop(1,'transparent');
   ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();
 }
+// EXIT 표지판 — 씬 조명과 무관하게 항상 켜져 있어야 하는 실물이라(정전 중에도 문 위
+// 표지판은 자체 배터리로 켜져 있는 게 상식이다) map이 아니라 emissiveMap으로 쓴다.
+// 검은 배경 위에 초록 글자만 남기면, emissiveMap이 정확히 그 부분만 발광시킨다
+// (검은 화소×emissive=0, 초록 화소만 빛남 — 조명 여부와 완전히 무관).
+export function makeExitSign(size,aniso){
+  const w=size,h=Math.round(size*0.39),s=size/256;
+  const c=document.createElement('canvas');c.width=w;c.height=h;
+  const ctx=c.getContext('2d');
+  ctx.fillStyle='#000';ctx.fillRect(0,0,w,h);
+  const bw=Math.max(1,5*s);
+  ctx.strokeStyle='#0f8';ctx.lineWidth=bw;
+  ctx.strokeRect(bw/2,bw/2,w-bw,h-bw);
+  ctx.fillStyle='#0f8';
+  ctx.font=`bold ${Math.round(h*0.58)}px sans-serif`;
+  ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.fillText('EXIT',w/2,h*0.56);
+  return finishTex(new THREE.CanvasTexture(c),1,aniso);
+}
+
 export function makeArrowDecal(size,aniso){
   const w=size,h=size,s=size/256;
   const c=document.createElement('canvas');c.width=w;c.height=h;
